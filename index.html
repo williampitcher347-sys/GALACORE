@@ -10,11 +10,8 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
 <style>
-/* ================= GLOBAL ================= */
-* {
-  box-sizing: border-box;
-  font-family: Arial, sans-serif;
-}
+/* ========== GLOBAL ========== */
+* { box-sizing: border-box; font-family: Arial, sans-serif; }
 body {
   margin: 0;
   background: #1e1f22;
@@ -23,14 +20,14 @@ body {
   overflow: hidden;
 }
 
-/* ================= LAYOUT ================= */
+/* ========== LAYOUT ========== */
 #app {
   display: grid;
   grid-template-columns: 70px 240px 1fr 240px;
   height: 100vh;
 }
 
-/* ================= SERVERS ================= */
+/* ========== SERVERS ========== */
 #servers {
   background: #1e1f22;
   padding: 10px;
@@ -44,10 +41,9 @@ body {
   align-items: center;
   justify-content: center;
   margin-bottom: 10px;
-  cursor: pointer;
 }
 
-/* ================= CHANNELS ================= */
+/* ========== CHANNELS ========== */
 #channels {
   background: #2b2d31;
   padding: 10px;
@@ -59,8 +55,12 @@ body {
 .channel:hover {
   background: #3a3c43;
 }
+#voiceStatus {
+  font-size: 12px;
+  opacity: 0.8;
+}
 
-/* ================= CHAT ================= */
+/* ========== CHAT ========== */
 #chat {
   background: #313338;
   display: flex;
@@ -68,11 +68,11 @@ body {
 }
 #messages {
   flex: 1;
-  padding: 10px;
   overflow-y: auto;
+  padding: 10px;
 }
 .message {
-  margin-bottom: 5px;
+  margin-bottom: 6px;
 }
 #inputBar {
   display: flex;
@@ -84,7 +84,7 @@ body {
   padding: 8px;
 }
 
-/* ================= USERS ================= */
+/* ========== USERS ========== */
 #users {
   background: #2b2d31;
   padding: 10px;
@@ -93,13 +93,7 @@ body {
   padding: 4px;
 }
 
-/* ================= VOICE ================= */
-.voice-status {
-  font-size: 12px;
-  opacity: 0.8;
-}
-
-/* ================= BUTTONS ================= */
+/* ========== BUTTONS ========== */
 button {
   background: #5865f2;
   border: none;
@@ -109,11 +103,6 @@ button {
 }
 button.red {
   background: #ed4245;
-}
-
-/* ================= SETTINGS ================= */
-#settings {
-  margin-top: 10px;
 }
 </style>
 </head>
@@ -136,13 +125,14 @@ button.red {
     <div class="channel" onclick="joinVoice('vc1')">🔊 VC 1</div>
     <div class="channel" onclick="joinVoice('vc2')">🔊 VC 2</div>
 
-    <div class="voice-status" id="voiceStatus">Not in voice</div>
+    <div id="voiceStatus">Not in voice</div>
     <button class="red" onclick="leaveVoice()">Disconnect</button>
 
     <hr>
 
     <input id="nameInput" placeholder="Username">
     <button onclick="saveName()">Save Name</button>
+    <button onclick="toggleMute()">Mute / Unmute</button>
   </div>
 
   <!-- CHAT -->
@@ -186,24 +176,22 @@ if (!username) {
 document.getElementById("nameInput").value = username;
 
 /* ================= PRESENCE ================= */
-db.ref("users/" + userId).set({
-  username,
-  online: true
-});
+db.ref("users/" + userId).set({ username, online: true });
 
 window.onbeforeunload = () => {
   db.ref("users/" + userId).remove();
   leaveVoice();
 };
 
-/* ================= CHAT ================= */
+/* ================= TEXT CHAT ================= */
 function send() {
   const input = document.getElementById("msg");
   if (!input.value) return;
 
   db.ref("messages").push({
     user: username,
-    text: input.value
+    text: input.value,
+    time: Date.now()
   });
 
   input.value = "";
@@ -238,117 +226,17 @@ function saveName() {
   db.ref("users/" + userId + "/username").set(v);
 }
 
-/* ================= VOICE (WEBRTC) ================= */
-let pc = null;
-let localStream = null;
-let currentVC = null;
-
-const rtcConfig = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
-};
-
-async function joinVoice(room) {
-  if (currentVC === room) return;
-  leaveVoice();
-
-  currentVC = room;
-  document.getElementById("voiceStatus").textContent =
-    "🔊 Connecting to " + room;
-
-  localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  pc = new RTCPeerConnection(rtcConfig);
-
-  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-
-  pc.ontrack = e => {
-    const audio = document.createElement("audio");
-    audio.srcObject = e.streams[0];
-    audio.autoplay = true;
-    document.body.appendChild(audio);
-  };
-
-  pc.onicecandidate = e => {
-    if (e.candidate) {
-      db.ref("voice/" + room + "/ice").push(JSON.stringify(e.candidate));
-    }
-  };
-
-  db.ref("voice/" + room + "/ice").on("child_added", s => {
-    pc.addIceCandidate(new RTCIceCandidate(JSON.parse(s.val())));
-  });
-
-  const offerRef = db.ref("voice/" + room + "/offer");
-  const answerRef = db.ref("voice/" + room + "/answer");
-
-  const offerSnap = await offerRef.get();
-
-  if (!offerSnap.exists()) {
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    await offerRef.set(JSON.stringify(offer));
-
-    answerRef.on("value", async s => {
-      if (s.exists() && !pc.currentRemoteDescription) {
-        await pc.setRemoteDescription(
-          new RTCSessionDescription(JSON.parse(s.val()))
-        );
-      }
-    });
-  } else {
-    await pc.setRemoteDescription(
-      new RTCSessionDescription(JSON.parse(offerSnap.val()))
-    );
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    await answerRef.set(JSON.stringify(answer));
-  }
-
-  document.getElementById("voiceStatus").textContent =
-    "🔊 In " + room;
-}
-
-function leaveVoice() {
-  if (localStream) {
-    localStream.getTracks().forEach(t => t.stop());
-    localStream = null;
-  }
-  if (pc) pc.close();
-  pc = null;
-  currentVC = null;
-  document.getElementById("voiceStatus").textContent = "Not in voice";
-}
-</script><script>
-/* ================= FIREBASE ================= */
-firebase.initializeApp({
-  apiKey: "AIzaSyBt_mZIfYnzcMygeQ11OTv1J59ARqsoN2c",
-  databaseURL: "https://dcrd3upgraded-default-rtdb.firebaseio.com",
-  projectId: "dcrd3upgraded"
-});
-const db = firebase.database();
-
-/* ================= USER ================= */
-let userId = localStorage.getItem("gc_id");
-if (!userId) {
-  userId = crypto.randomUUID();
-  localStorage.setItem("gc_id", userId);
-}
-
-let username = localStorage.getItem("gc_name") || "User" + Math.floor(Math.random()*9000);
-localStorage.setItem("gc_name", username);
-
-/* ================= VOICE STATE ================= */
+/* ================= VOICE (MULTI-USER WEBRTC) ================= */
 let currentRoom = null;
 let localStream = null;
-let peers = {};        // peerId -> RTCPeerConnection
-let audioEls = {};     // peerId -> <audio>
+let peers = {};
+let audioEls = {};
 let muted = false;
 
-/* ================= RTC CONFIG ================= */
 const rtcConfig = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
 };
 
-/* ================= JOIN VOICE ================= */
 async function joinVoice(room) {
   if (currentRoom === room) return;
   leaveVoice();
@@ -360,44 +248,32 @@ async function joinVoice(room) {
 
   const roomRef = db.ref("voiceRooms/" + room);
 
-  // announce presence
-  await roomRef.child("members/" + userId).set({
-    username,
-    joined: Date.now()
-  });
+  await roomRef.child("members/" + userId).set({ username });
 
-  // listen for other members
   roomRef.child("members").on("child_added", snap => {
-    const peerId = snap.key;
-    if (peerId === userId) return;
-    createPeer(peerId, true);
+    if (snap.key !== userId) createPeer(snap.key, true);
   });
 
   roomRef.child("members").on("child_removed", snap => {
     removePeer(snap.key);
   });
 
-  // signaling
   roomRef.child("signals").on("child_added", snap => {
     const data = snap.val();
-    if (!data || data.to !== userId) return;
-    handleSignal(data);
+    if (data.to === userId) handleSignal(data);
   });
 
   document.getElementById("voiceStatus").textContent = "🔊 In " + room;
 }
 
-/* ================= CREATE PEER ================= */
-function createPeer(peerId, isInitiator) {
+function createPeer(peerId, initiator) {
   if (peers[peerId]) return;
 
   const pc = new RTCPeerConnection(rtcConfig);
   peers[peerId] = pc;
 
-  // add mic
   localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
 
-  // remote audio
   pc.ontrack = e => {
     let audio = audioEls[peerId];
     if (!audio) {
@@ -409,29 +285,20 @@ function createPeer(peerId, isInitiator) {
     audio.srcObject = e.streams[0];
   };
 
-  // ICE
   pc.onicecandidate = e => {
     if (e.candidate) {
-      sendSignal(peerId, {
-        type: "ice",
-        candidate: e.candidate
-      });
+      sendSignal(peerId, { type: "ice", candidate: e.candidate });
     }
   };
 
-  // initiator creates offer
-  if (isInitiator) {
+  if (initiator) {
     pc.createOffer().then(offer => {
       pc.setLocalDescription(offer);
-      sendSignal(peerId, {
-        type: "offer",
-        sdp: offer
-      });
+      sendSignal(peerId, { type: "offer", sdp: offer });
     });
   }
 }
 
-/* ================= SIGNALING ================= */
 function sendSignal(to, payload) {
   db.ref("voiceRooms/" + currentRoom + "/signals").push({
     from: userId,
@@ -441,22 +308,17 @@ function sendSignal(to, payload) {
 }
 
 async function handleSignal(data) {
-  const peerId = data.from;
-  let pc = peers[peerId];
-
+  let pc = peers[data.from];
   if (!pc) {
-    createPeer(peerId, false);
-    pc = peers[peerId];
+    createPeer(data.from, false);
+    pc = peers[data.from];
   }
 
   if (data.type === "offer") {
     await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    sendSignal(peerId, {
-      type: "answer",
-      sdp: answer
-    });
+    sendSignal(data.from, { type: "answer", sdp: answer });
   }
 
   if (data.type === "answer") {
@@ -468,15 +330,17 @@ async function handleSignal(data) {
   }
 }
 
-/* ================= LEAVE VOICE ================= */
+function removePeer(id) {
+  if (peers[id]) peers[id].close();
+  if (audioEls[id]) audioEls[id].remove();
+  delete peers[id];
+  delete audioEls[id];
+}
+
 function leaveVoice() {
   if (!currentRoom) return;
 
-  Object.values(peers).forEach(pc => pc.close());
-  Object.values(audioEls).forEach(a => a.remove());
-
-  peers = {};
-  audioEls = {};
+  Object.keys(peers).forEach(removePeer);
 
   if (localStream) {
     localStream.getTracks().forEach(t => t.stop());
@@ -485,11 +349,9 @@ function leaveVoice() {
 
   db.ref("voiceRooms/" + currentRoom + "/members/" + userId).remove();
   currentRoom = null;
-
   document.getElementById("voiceStatus").textContent = "Not in voice";
 }
 
-/* ================= MUTE ================= */
 function toggleMute() {
   muted = !muted;
   if (localStream) {
@@ -497,7 +359,6 @@ function toggleMute() {
   }
 }
 </script>
-
 
 </body>
 </html>
