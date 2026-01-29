@@ -3,119 +3,129 @@
 <head>
 <meta charset="UTF-8">
 <title>Galaxacord</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<!-- Firebase v8 -->
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
 
 <style>
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  font-family: "Segoe UI", sans-serif;
-  background: #313338;
+  font-family: Arial, sans-serif;
+  background: #1e1f22;
   color: white;
 }
 
-button {
-  background: #5865F2;
-  border: none;
-  color: white;
-  padding: 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  width: 100%;
-  margin-top: 6px;
-}
-
-input {
-  padding: 10px;
-  border-radius: 6px;
-  border: none;
-  width: 100%;
-  margin-bottom: 8px;
-}
-
+/* AUTH */
 #auth {
   height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 10px;
 }
 
-#authBox {
-  width: 300px;
-  background: #1e1f22;
-  padding: 25px;
-  border-radius: 8px;
+input, button {
+  width: 260px;
+  padding: 10px;
+  border-radius: 5px;
+  border: none;
 }
 
+button {
+  background: #5865f2;
+  color: white;
+  cursor: pointer;
+}
+
+/* APP */
 #app {
   display: none;
   height: 100vh;
-}
-
-#layout {
   display: flex;
-  height: 100%;
 }
 
+/* SERVERS */
 #servers {
   width: 72px;
   background: #1e1f22;
+  border-right: 1px solid #2b2d31;
+  padding: 8px;
 }
 
-.server {
-  width: 48px;
-  height: 48px;
-  background: #313338;
-  margin: 12px auto;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* SIDEBAR */
+#sidebar {
+  width: 240px;
+  background: #2b2d31;
+  padding: 10px;
 }
 
-#main {
+/* CHAT */
+#chat {
   flex: 1;
-  background: #313338;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
+  flex-direction: column;
+  background: #313338;
+}
+
+#messages {
+  flex: 1;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+#input {
+  padding: 10px;
+}
+
+#messageInput {
+  width: 100%;
+  padding: 10px;
+  background: #383a40;
+  color: white;
+  border-radius: 5px;
+  border: none;
 }
 </style>
 </head>
 
 <body>
 
-<!-- AUTH -->
+<!-- AUTH SCREEN -->
 <div id="auth">
-  <div id="authBox">
-    <h2>🌌 Galaxacord</h2>
-    <input id="email" placeholder="Email">
-    <input id="password" type="password" placeholder="Password (6+ chars)">
-    <button onclick="register()">Register</button>
-    <button onclick="login()">Login</button>
-    <p id="authMsg"></p>
-  </div>
+  <h1>Galaxacord</h1>
+  <input id="email" placeholder="Email">
+  <input id="password" type="password" placeholder="Password">
+  <button onclick="register()">Register</button>
+  <button onclick="login()">Login</button>
+  <p id="error"></p>
 </div>
 
 <!-- APP -->
 <div id="app">
-  <div id="layout">
-    <div id="servers">
-      <div class="server">👥</div>
-    </div>
-    <div id="main">
-      Logged into Galaxacord 🚀
+  <div id="servers">
+    <button onclick="createServer()">+</button>
+  </div>
+
+  <div id="sidebar">
+    <button onclick="openFriends()">Friends</button>
+    <div id="channels"></div>
+  </div>
+
+  <div id="chat">
+    <div id="messages"></div>
+    <div id="input">
+      <input id="messageInput" placeholder="Message Galaxacord" onkeydown="handleEnter(event)">
     </div>
   </div>
 </div>
 
 <script>
+
 const firebaseConfig = {
   apiKey: "AIzaSyDPmYoOViI__iEn_z38IRwEnPs0cNMqVCQ",
   authDomain: "dcrd-97f60.firebaseapp.com",
@@ -124,41 +134,86 @@ const firebaseConfig = {
 };
 
 firebase.initializeApp(firebaseConfig);
-
 const auth = firebase.auth();
 const db = firebase.database();
 
-const authMsg = document.getElementById("authMsg");
+let currentChat = "global";
 
+/* AUTH STATE */
+auth.onAuthStateChanged(user => {
+  if (user) {
+    authScreen(false);
+    loadMessages();
+  } else {
+    authScreen(true);
+  }
+});
+
+function authScreen(show) {
+  document.getElementById("auth").style.display = show ? "flex" : "none";
+  document.getElementById("app").style.display = show ? "none" : "flex";
+}
+
+/* AUTH */
 function register() {
-  const e = email.value;
-  const p = password.value;
-
-  auth.createUserWithEmailAndPassword(e, p)
-    .then(cred => {
-      db.ref("users/" + cred.user.uid).set({
-        email: cred.user.email,
-        created: Date.now()
-      });
-      authMsg.innerText = "Account created! You are logged in.";
-    })
-    .catch(err => authMsg.innerText = err.message);
+  auth.createUserWithEmailAndPassword(email.value, password.value)
+    .catch(e => error.innerText = e.message);
 }
 
 function login() {
   auth.signInWithEmailAndPassword(email.value, password.value)
-    .catch(err => authMsg.innerText = err.message);
+    .catch(e => error.innerText = e.message);
 }
 
-auth.onAuthStateChanged(user => {
-  if (user) {
-    auth.style.display = "none";
-    app.style.display = "block";
-  } else {
-    auth.style.display = "flex";
-    app.style.display = "none";
-  }
-});
+/* CHAT */
+function handleEnter(e) {
+  if (e.key === "Enter") sendMessage();
+}
+
+function sendMessage() {
+  if (!auth.currentUser || !messageInput.value) return;
+
+  db.ref("messages/" + currentChat).push({
+    sender: auth.currentUser.uid,
+    text: messageInput.value,
+    time: Date.now()
+  });
+
+  messageInput.value = "";
+}
+
+function loadMessages() {
+  messages.innerHTML = "";
+  db.ref("messages/" + currentChat).off();
+
+  db.ref("messages/" + currentChat).on("child_added", snap => {
+    const msg = snap.val();
+    const div = document.createElement("div");
+    div.textContent = msg.text;
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  });
+}
+
+/* FRIENDS (UI PLACEHOLDER) */
+function openFriends() {
+  channels.innerHTML = "<p>Friends UI coming next</p>";
+}
+
+/* SERVERS */
+function createServer() {
+  const name = prompt("Server name");
+  if (!name) return;
+
+  const uid = auth.currentUser.uid;
+  const ref = db.ref("servers").push();
+
+  ref.set({
+    name,
+    owner: uid,
+    members: { [uid]: true }
+  });
+}
 </script>
 
 </body>
