@@ -1,5 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Galaxacord Voice (REAL)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<style>
+body {
+  background:#1e1f22;
+  color:white;
+  font-family:Arial;
+  padding:20px;
+}
+button {
+  background:#5865f2;
+  border:none;
+  padding:10px;
+  color:white;
+  cursor:pointer;
+}
+</style>
+</head>
+
+<body>
+
+<h2>Galaxacord – Real Voice</h2>
+<button onclick="join()">Join Voice</button>
+<button onclick="leave()">Leave</button>
+<div id="status">Idle</div>
+
 <script>
-/* FIREBASE */
+/* ---------- FIREBASE ---------- */
 firebase.initializeApp({
   apiKey: "AIzaSyBt_mZIfYnzcMygeQ11OTv1J59ARqsoN2c",
   databaseURL: "https://dcrd3upgraded-default-rtdb.firebaseio.com",
@@ -7,124 +41,79 @@ firebase.initializeApp({
 });
 const db = firebase.database();
 
-/* ELEMENTS */
-const nameScreen = document.getElementById("nameScreen");
-const app = document.getElementById("app");
-const nameInput = document.getElementById("nameInput");
-const messages = document.getElementById("messages");
-const users = document.getElementById("users");
-const msg = document.getElementById("msg");
-const voiceStatus = document.getElementById("voiceStatus");
+/* ---------- USER ---------- */
+const id = localStorage.getItem("vc_id") || crypto.randomUUID();
+localStorage.setItem("vc_id", id);
 
-/* SESSION */
-let id = localStorage.getItem("galaxacord_id");
-if (!id) {
-  id = crypto.randomUUID();
-  localStorage.setItem("galaxacord_id", id);
-}
+/* ---------- WEBRTC ---------- */
+let pc;
+let stream;
 
-let username = localStorage.getItem("galaxacord_name");
-let currentVoice = null;
-let stream = null;
+const config = {
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+};
 
-/* AUTO START */
-if (username) start();
-
-/* ENTER APP */
-function enter() {
-  const name = nameInput.value.trim();
-  if (name.length < 3) {
-    alert("Username must be at least 3 characters");
-    return;
-  }
-
-  username = name;
-  localStorage.setItem("galaxacord_name", name);
-
-  db.ref("users/" + id).set({
-    username,
-    online: true
-  });
-
-  start();
-}
-
-/* START APP */
-function start() {
-  nameScreen.classList.add("hidden");
-  app.classList.remove("hidden");
-
-  setOnline();
-  loadMessages();
-  loadUsers();
-}
-
-/* ONLINE */
-function setOnline() {
-  db.ref("users/" + id + "/online").set(true);
-
-  window.onbeforeunload = () => {
-    db.ref("users/" + id).remove();
-    leaveVoice();
-  };
-}
-
-/* CHAT */
-function send() {
-  if (!msg.value) return;
-
-  db.ref("messages").push({
-    user: username,
-    text: msg.value
-  });
-
-  msg.value = "";
-}
-
-function loadMessages() {
-  messages.innerHTML = "";
-  db.ref("messages").limitToLast(100).on("child_added", snap => {
-    const m = snap.val();
-    const div = document.createElement("div");
-    div.textContent = m.user + ": " + m.text;
-    messages.appendChild(div);
-    messages.scrollTop = messages.scrollHeight;
-  });
-}
-
-/* USERS */
-function loadUsers() {
-  db.ref("users").on("value", snap => {
-    users.innerHTML = "";
-    snap.forEach(u => {
-      if (!u.val().online) return;
-      const div = document.createElement("div");
-      div.className = "user";
-      div.textContent = u.val().username;
-      users.appendChild(div);
-    });
-  });
-}
-
-/* VOICE */
-async function joinVoice(room) {
-  if (currentVoice === room) return;
-  leaveVoice();
+async function join() {
+  document.getElementById("status").textContent = "Connecting…";
 
   stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  currentVoice = room;
-  voiceStatus.textContent = "🔊 Connected to " + room;
-}
 
-function leaveVoice() {
-  if (!currentVoice) return;
+  pc = new RTCPeerConnection(config);
 
-  if (stream) {
-    stream.getTracks().forEach(t => t.stop());
-    stream = null;
+  stream.getTracks().forEach(t => pc.addTrack(t, stream));
+
+  pc.ontrack = e => {
+    const audio = document.createElement("audio");
+    audio.srcObject = e.streams[0];
+    audio.autoplay = true;
+    document.body.appendChild(audio);
+  };
+
+  pc.onicecandidate = e => {
+    if (e.candidate) {
+      db.ref("voice/ice").push(JSON.stringify(e.candidate));
+    }
+  };
+
+  db.ref("voice/ice").on("child_added", s => {
+    const cand = JSON.parse(s.val());
+    pc.addIceCandidate(new RTCIceCandidate(cand));
+  });
+
+  const offerSnap = await db.ref("voice/offer").get();
+
+  if (!offerSnap.exists()) {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await db.ref("voice/offer").set(JSON.stringify(offer));
+
+    db.ref("voice/answer").on("value", async s => {
+      if (s.exists() && !pc.currentRemoteDescription) {
+        await pc.setRemoteDescription(
+          new RTCSessionDescription(JSON.parse(s.val()))
+        );
+      }
+    });
+  } else {
+    await pc.setRemoteDescription(
+      new RTCSessionDescription(JSON.parse(offerSnap.val()))
+    );
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await db.ref("voice/answer").set(JSON.stringify(answer));
   }
 
-  currentVoice = null;
-  voiceStatus.textContent = "Not in voice";
+  document.getElementById("status").textContent = "🔊 Connected";
+}
+
+function leave() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  if (pc) pc.close();
+  pc = null;
+  db.ref("voice").remove();
+  document.getElementById("status").textContent = "Disconnected";
 }
 </script>
+
+</body>
+</html>
