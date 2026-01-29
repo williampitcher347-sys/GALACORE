@@ -1,83 +1,108 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
+<meta charset="UTF-8">
 <title>Galaxacord</title>
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
 <style>
 body {
   margin: 0;
   font-family: system-ui, sans-serif;
   background: #1e1f22;
-  color: #fff;
+  color: white;
 }
-.hidden { display:none }
+
+.hidden { display: none; }
+
+#auth, #app {
+  height: 100vh;
+}
 
 #auth {
-  display:flex;
-  height:100vh;
-  align-items:center;
-  justify-content:center;
-}
-.auth-box {
-  background:#2b2d31;
-  padding:30px;
-  width:300px;
-  border-radius:10px;
-}
-.auth-box input, button {
-  width:100%;
-  margin-top:10px;
-  padding:10px;
-  border:none;
-  border-radius:6px;
-}
-button {
-  background:#5865f2;
-  color:white;
-  cursor:pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
+.auth-box {
+  background: #2b2d31;
+  padding: 30px;
+  width: 320px;
+  border-radius: 10px;
+}
+
+.auth-box h2 {
+  margin-top: 0;
+}
+
+.auth-box input {
+  width: 100%;
+  padding: 10px;
+  margin-top: 10px;
+  border-radius: 6px;
+  border: none;
+}
+
+.auth-box button {
+  width: 100%;
+  padding: 10px;
+  margin-top: 10px;
+  background: #5865f2;
+  border: none;
+  border-radius: 6px;
+  color: white;
+  cursor: pointer;
+}
+
+#error {
+  color: #ff6b6b;
+  margin-top: 10px;
+  font-size: 14px;
+}
+
+/* APP */
 #app {
-  display:flex;
-  height:100vh;
+  display: flex;
 }
 
 #servers {
-  width:60px;
-  background:#1e1f22;
-  padding:10px;
+  width: 60px;
+  background: #1e1f22;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 #channels {
-  width:200px;
-  background:#2b2d31;
-  padding:10px;
+  width: 220px;
+  background: #2b2d31;
+  padding: 10px;
 }
 
 #chat {
-  flex:1;
-  display:flex;
-  flex-direction:column;
-  background:#313338;
+  flex: 1;
+  background: #313338;
+  display: flex;
+  flex-direction: column;
 }
 
 #messages {
-  flex:1;
-  padding:10px;
-  overflow-y:auto;
+  flex: 1;
+  padding: 10px;
+  overflow-y: auto;
 }
 
 #input {
-  display:flex;
-  padding:10px;
+  padding: 10px;
+  display: flex;
 }
+
 #input input {
-  flex:1;
-  padding:10px;
-  border-radius:6px;
-  border:none;
+  flex: 1;
+  padding: 10px;
+  border-radius: 6px;
+  border: none;
 }
 </style>
 </head>
@@ -87,12 +112,12 @@ button {
 <!-- AUTH -->
 <div id="auth">
   <div class="auth-box">
-    <h2 id="authTitle">Login</h2>
+    <h2>Galaxacord</h2>
     <input id="email" placeholder="Email">
     <input id="password" type="password" placeholder="Password">
-    <button onclick="login()">Login</button>
-    <button onclick="register()">Register</button>
-    <p id="authMsg"></p>
+    <button id="loginBtn">Login</button>
+    <button id="registerBtn">Register</button>
+    <div id="error"></div>
   </div>
 </div>
 
@@ -100,21 +125,13 @@ button {
 <div id="app" class="hidden">
   <div id="servers">🌌</div>
   <div id="channels">
-    <h4>Text</h4>
-    <div onclick="setRoom('global1')"># global-1</div>
-    <div onclick="setRoom('global2')"># global-2</div>
-    <div onclick="setRoom('global3')"># global-3</div>
-
-    <h4>Voice</h4>
-    <div onclick="joinVoice('voice1')">🔊 Voice 1</div>
-    <div onclick="joinVoice('voice2')">🔊 Voice 2</div>
+    <h4>Text Channels</h4>
+    <div># global-1</div>
   </div>
-
   <div id="chat">
-    <div id="messages"></div>
+    <div id="messages">Welcome to Galaxacord 🎉</div>
     <div id="input">
-      <input id="msg" placeholder="Message Galaxacord">
-      <button onclick="sendMsg()">Send</button>
+      <input placeholder="Message">
     </div>
   </div>
 </div>
@@ -123,97 +140,79 @@ button {
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import {
   getAuth,
-  onAuthStateChanged,
+  createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword
+  onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import {
-  getDatabase,
-  ref,
-  push,
-  set,
-  onValue,
-  onDisconnect
-} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
+/* 🔥 YOUR FIREBASE CONFIG */
 const firebaseConfig = {
   apiKey: "AIzaSyBt_mZIfYnzcMygeQ11OTv1J59ARqsoN2c",
   authDomain: "dcrd3upgraded.firebaseapp.com",
   projectId: "dcrd3upgraded",
   storageBucket: "dcrd3upgraded.firebasestorage.app",
   messagingSenderId: "22145403485",
-  appId: "1:22145403485:web:ec5ffdde4cebe37a7b1bb4",
+  appId: "1:22145403485:web:ec5ffdde4cebe37a7b1bb4"
 };
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getDatabase(app);
 
-let user = null;
-let room = "global1";
+/* UI refs */
+const authDiv = document.getElementById("auth");
+const appDiv = document.getElementById("app");
+const errorDiv = document.getElementById("error");
 
-window.login = async () => {
-  try {
-    await signInWithEmailAndPassword(auth, email.value, password.value);
-  } catch(e) {
-    authMsg.innerText = e.message;
-  }
-};
-
-window.register = async () => {
-  try {
-    await createUserWithEmailAndPassword(auth, email.value, password.value);
-  } catch(e) {
-    authMsg.innerText = e.message;
-  }
-};
-
-onAuthStateChanged(auth, u => {
-  if (!u) return;
-  user = u;
-  auth.classList.add("hidden");
-  app.classList.remove("hidden");
-
-  const p = ref(db, "presence/" + u.uid);
-  set(p, true);
-  onDisconnect(p).remove();
-
-  listen();
-});
-
-window.setRoom = r => {
-  room = r;
-  messages.innerHTML = "";
-  listen();
-};
-
-function listen() {
-  onValue(ref(db, "messages/" + room), snap => {
-    messages.innerHTML = "";
-    snap.forEach(c => {
-      const d = c.val();
-      const div = document.createElement("div");
-      div.textContent = d.text;
-      messages.appendChild(div);
-    });
-  });
+/* SHOW APP */
+function showApp() {
+  authDiv.classList.add("hidden");
+  appDiv.classList.remove("hidden");
 }
 
-window.sendMsg = () => {
-  if (!msg.value) return;
-  push(ref(db, "messages/" + room), {
-    uid: user.uid,
-    text: msg.value
-  });
-  msg.value = "";
+/* SHOW AUTH */
+function showAuth() {
+  authDiv.classList.remove("hidden");
+  appDiv.classList.add("hidden");
+}
+
+/* LOGIN */
+document.getElementById("loginBtn").onclick = async () => {
+  errorDiv.textContent = "";
+  try {
+    await signInWithEmailAndPassword(
+      auth,
+      email.value,
+      password.value
+    );
+    showApp();
+  } catch (e) {
+    errorDiv.textContent = e.message;
+  }
 };
 
-// 🎤 BASIC VOICE (REAL MIC, SIMPLE)
-let localStream;
-window.joinVoice = async room => {
-  localStream = await navigator.mediaDevices.getUserMedia({ audio:true });
-  alert("Microphone connected to " + room);
+/* REGISTER */
+document.getElementById("registerBtn").onclick = async () => {
+  errorDiv.textContent = "";
+  try {
+    await createUserWithEmailAndPassword(
+      auth,
+      email.value,
+      password.value
+    );
+    showApp();
+  } catch (e) {
+    errorDiv.textContent = e.message;
+  }
 };
+
+/* AUTO LOGIN ON REFRESH */
+onAuthStateChanged(auth, user => {
+  if (user) {
+    showApp();
+  } else {
+    showAuth();
+  }
+});
 </script>
 
 </body>
