@@ -3,20 +3,33 @@
 <head>
 <meta charset="UTF-8">
 <title>Galaxacord</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
-<!-- Firebase -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
 <style>
 * { box-sizing: border-box; font-family: Arial, sans-serif; }
-body { margin: 0; background: #1e1f22; color: white; height: 100vh; overflow: hidden; }
+body { margin: 0; background: #1e1f22; color: white; height: 100vh; }
 
 .hidden { display: none; }
 
-#auth {
+button {
+  background: #5865f2;
+  border: none;
+  color: white;
+  padding: 10px;
+  cursor: pointer;
+}
+
+input {
+  padding: 10px;
+  margin-top: 10px;
+  width: 100%;
+}
+
+#auth, #usernameSetup {
   height: 100vh;
   display: flex;
   justify-content: center;
@@ -25,22 +38,9 @@ body { margin: 0; background: #1e1f22; color: white; height: 100vh; overflow: hi
 
 .auth-box {
   background: #2b2d31;
-  padding: 30px;
+  padding: 25px;
   width: 320px;
   border-radius: 8px;
-}
-
-.auth-box input, .auth-box button {
-  width: 100%;
-  margin-top: 10px;
-  padding: 10px;
-}
-
-button {
-  background: #5865f2;
-  color: white;
-  border: none;
-  cursor: pointer;
 }
 
 #app {
@@ -49,50 +49,20 @@ button {
   height: 100vh;
 }
 
-.servers {
-  background: #1e1f22;
-  padding: 10px;
-}
+.servers { background: #1e1f22; padding: 10px; }
+.channels { background: #2b2d31; padding: 10px; }
+.chat { background: #313338; display: flex; flex-direction: column; }
+.messages { flex: 1; overflow-y: auto; padding: 10px; }
+.input { display: flex; }
+.input input { flex: 1; }
+.members { background: #2b2d31; padding: 10px; }
 
-.channels {
-  background: #2b2d31;
-  padding: 10px;
-}
+.user { padding: 4px; font-size: 14px; }
 
-.chat {
-  background: #313338;
-  display: flex;
-  flex-direction: column;
-}
-
-.messages {
-  flex: 1;
-  padding: 10px;
-  overflow-y: auto;
-}
-
-.input {
-  display: flex;
-}
-
-.input input {
-  flex: 1;
-  padding: 10px;
-}
-
-.members {
-  background: #2b2d31;
-  padding: 10px;
-}
-
-.voice {
+.voiceBox {
+  margin-top: 10px;
   background: #232428;
-  padding: 10px;
-}
-
-.user {
-  padding: 5px;
-  cursor: pointer;
+  padding: 8px;
 }
 </style>
 </head>
@@ -101,32 +71,49 @@ button {
 <!-- AUTH -->
 <div id="auth">
   <div class="auth-box">
-    <h2 id="authTitle">Login</h2>
+    <h2>Galaxacord</h2>
     <input id="email" placeholder="Email">
     <input id="password" type="password" placeholder="Password">
-    <input id="username" placeholder="Username (register only)">
     <button onclick="login()">Login</button>
     <button onclick="register()">Register</button>
+  </div>
+</div>
+
+<!-- USERNAME SETUP -->
+<div id="usernameSetup" class="hidden">
+  <div class="auth-box">
+    <h2>Choose Username</h2>
+    <input id="newUsername" placeholder="Username">
+    <button onclick="saveUsername()">Save</button>
   </div>
 </div>
 
 <!-- APP -->
 <div id="app" class="hidden">
   <div class="servers">🌌</div>
+
   <div class="channels">
     <h4>Text</h4>
     <div># global</div>
+
     <h4>Voice</h4>
-    <div onclick="joinVoice('vc1')">🔊 VC 1</div>
-    <div onclick="joinVoice('vc2')">🔊 VC 2</div>
+    <div onclick="joinVoice('VC-1')">🔊 VC-1</div>
+    <div onclick="joinVoice('VC-2')">🔊 VC-2</div>
+
+    <div class="voiceBox">
+      <div id="voiceStatus">Not in voice</div>
+      <button onclick="leaveVoice()">Disconnect</button>
+    </div>
   </div>
+
   <div class="chat">
     <div class="messages" id="messages"></div>
     <div class="input">
-      <input id="msg" placeholder="Message...">
+      <input id="msg" placeholder="Message">
       <button onclick="sendMessage()">Send</button>
     </div>
   </div>
+
   <div class="members">
     <h4>Online</h4>
     <div id="users"></div>
@@ -134,51 +121,69 @@ button {
 </div>
 
 <script>
-const firebaseConfig = {
+/* FIREBASE CONFIG */
+firebase.initializeApp({
   apiKey: "AIzaSyBt_mZIfYnzcMygeQ11OTv1J59ARqsoN2c",
   authDomain: "dcrd3upgraded.firebaseapp.com",
-  projectId: "dcrd3upgraded",
   databaseURL: "https://dcrd3upgraded-default-rtdb.firebaseio.com",
+  projectId: "dcrd3upgraded",
   storageBucket: "dcrd3upgraded.firebasestorage.app",
   messagingSenderId: "22145403485",
   appId: "1:22145403485:web:ec5ffdde4cebe37a7b1bb4"
-};
+});
 
-firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.database();
 
-let currentUser;
-let localStream;
-let peer;
+let currentUser = null;
+let currentVoice = null;
+let localStream = null;
 
-auth.onAuthStateChanged(user => {
-  if (user) {
-    currentUser = user;
-    document.getElementById("auth").classList.add("hidden");
-    document.getElementById("app").classList.remove("hidden");
-    setOnline();
-    loadChat();
-    loadUsers();
+/* AUTH STATE */
+auth.onAuthStateChanged(async user => {
+  if (!user) {
+    showAuth();
+    return;
+  }
+
+  currentUser = user;
+  const snap = await db.ref("users/" + user.uid).get();
+
+  if (!snap.exists() || !snap.val().username) {
+    showUsernameSetup();
   } else {
-    document.getElementById("auth").classList.remove("hidden");
-    document.getElementById("app").classList.add("hidden");
+    startApp();
   }
 });
 
-function register() {
-  const email = email.value;
-  const pass = password.value;
-  const name = username.value;
+/* UI STATES */
+function showAuth() {
+  authUI(true);
+}
 
-  auth.createUserWithEmailAndPassword(email, pass)
-    .then(res => {
-      const tag = Math.floor(1000 + Math.random() * 9000);
-      db.ref("users/" + res.user.uid).set({
-        username: name,
-        tag,
-        online: true
-      });
+function showUsernameSetup() {
+  authUI(false);
+  usernameSetup.classList.remove("hidden");
+}
+
+function startApp() {
+  authUI(false);
+  app.classList.remove("hidden");
+  setOnline();
+  loadChat();
+  loadUsers();
+}
+
+function authUI(show) {
+  auth.classList.toggle("hidden", !show);
+  usernameSetup.classList.add("hidden");
+  app.classList.add("hidden");
+}
+
+/* AUTH ACTIONS */
+function register() {
+  auth.createUserWithEmailAndPassword(email.value, password.value)
+    .then(() => {
       alert("Nice! Now log in.");
       auth.signOut();
     })
@@ -190,53 +195,86 @@ function login() {
     .catch(e => alert(e.message));
 }
 
-function setOnline() {
-  db.ref("users/" + currentUser.uid + "/online").set(true);
-  window.onbeforeunload = () =>
-    db.ref("users/" + currentUser.uid + "/online").set(false);
+/* USERNAME */
+function saveUsername() {
+  const name = newUsername.value.trim();
+  if (name.length < 3) return alert("Too short");
+
+  const tag = Math.floor(1000 + Math.random() * 9000);
+  db.ref("users/" + currentUser.uid).set({
+    username: name,
+    tag,
+    online: true
+  });
+
+  startApp();
 }
 
+/* ONLINE */
+function setOnline() {
+  db.ref("users/" + currentUser.uid + "/online").set(true);
+  window.onbeforeunload = () => {
+    db.ref("users/" + currentUser.uid + "/online").set(false);
+    leaveVoice();
+  };
+}
+
+/* CHAT */
 function sendMessage() {
-  const text = msg.value;
-  if (!text) return;
+  if (!msg.value) return;
   db.ref("messages").push({
     uid: currentUser.uid,
-    text,
-    time: Date.now()
+    text: msg.value
   });
   msg.value = "";
 }
 
 function loadChat() {
+  messages.innerHTML = "";
   db.ref("messages").limitToLast(100).on("child_added", snap => {
-    const m = snap.val();
-    const div = document.createElement("div");
-    div.textContent = m.text;
-    messages.appendChild(div);
+    const d = document.createElement("div");
+    d.textContent = snap.val().text;
+    messages.appendChild(d);
     messages.scrollTop = messages.scrollHeight;
   });
 }
 
+/* USERS */
 function loadUsers() {
   db.ref("users").on("value", snap => {
     users.innerHTML = "";
     snap.forEach(u => {
-      if (u.val().online) {
-        const d = document.createElement("div");
-        d.className = "user";
-        d.textContent = u.val().username + "#" + u.val().tag;
-        users.appendChild(d);
-      }
+      const v = u.val();
+      if (!v.online) return;
+      const d = document.createElement("div");
+      d.className = "user";
+      d.textContent = v.username + "#" + v.tag;
+      users.appendChild(d);
     });
   });
 }
 
-/* BASIC VOICE CHAT */
+/* VOICE */
 async function joinVoice(room) {
+  if (currentVoice === room) return;
+  leaveVoice();
+
   localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  const audio = document.createElement("audio");
-  audio.srcObject = localStream;
-  audio.autoplay = true;
+  currentVoice = room;
+
+  voiceStatus.textContent = "🔊 Connected to " + room;
+}
+
+function leaveVoice() {
+  if (!currentVoice) return;
+
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
+  }
+
+  currentVoice = null;
+  voiceStatus.textContent = "Not in voice";
 }
 </script>
 </body>
