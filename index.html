@@ -317,7 +317,187 @@ function leaveVoice() {
   currentVC = null;
   document.getElementById("voiceStatus").textContent = "Not in voice";
 }
+</script><script>
+/* ================= FIREBASE ================= */
+firebase.initializeApp({
+  apiKey: "AIzaSyBt_mZIfYnzcMygeQ11OTv1J59ARqsoN2c",
+  databaseURL: "https://dcrd3upgraded-default-rtdb.firebaseio.com",
+  projectId: "dcrd3upgraded"
+});
+const db = firebase.database();
+
+/* ================= USER ================= */
+let userId = localStorage.getItem("gc_id");
+if (!userId) {
+  userId = crypto.randomUUID();
+  localStorage.setItem("gc_id", userId);
+}
+
+let username = localStorage.getItem("gc_name") || "User" + Math.floor(Math.random()*9000);
+localStorage.setItem("gc_name", username);
+
+/* ================= VOICE STATE ================= */
+let currentRoom = null;
+let localStream = null;
+let peers = {};        // peerId -> RTCPeerConnection
+let audioEls = {};     // peerId -> <audio>
+let muted = false;
+
+/* ================= RTC CONFIG ================= */
+const rtcConfig = {
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+};
+
+/* ================= JOIN VOICE ================= */
+async function joinVoice(room) {
+  if (currentRoom === room) return;
+  leaveVoice();
+
+  currentRoom = room;
+  document.getElementById("voiceStatus").textContent = "🔊 Connecting to " + room;
+
+  localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+  const roomRef = db.ref("voiceRooms/" + room);
+
+  // announce presence
+  await roomRef.child("members/" + userId).set({
+    username,
+    joined: Date.now()
+  });
+
+  // listen for other members
+  roomRef.child("members").on("child_added", snap => {
+    const peerId = snap.key;
+    if (peerId === userId) return;
+    createPeer(peerId, true);
+  });
+
+  roomRef.child("members").on("child_removed", snap => {
+    removePeer(snap.key);
+  });
+
+  // signaling
+  roomRef.child("signals").on("child_added", snap => {
+    const data = snap.val();
+    if (!data || data.to !== userId) return;
+    handleSignal(data);
+  });
+
+  document.getElementById("voiceStatus").textContent = "🔊 In " + room;
+}
+
+/* ================= CREATE PEER ================= */
+function createPeer(peerId, isInitiator) {
+  if (peers[peerId]) return;
+
+  const pc = new RTCPeerConnection(rtcConfig);
+  peers[peerId] = pc;
+
+  // add mic
+  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+  // remote audio
+  pc.ontrack = e => {
+    let audio = audioEls[peerId];
+    if (!audio) {
+      audio = document.createElement("audio");
+      audio.autoplay = true;
+      audioEls[peerId] = audio;
+      document.body.appendChild(audio);
+    }
+    audio.srcObject = e.streams[0];
+  };
+
+  // ICE
+  pc.onicecandidate = e => {
+    if (e.candidate) {
+      sendSignal(peerId, {
+        type: "ice",
+        candidate: e.candidate
+      });
+    }
+  };
+
+  // initiator creates offer
+  if (isInitiator) {
+    pc.createOffer().then(offer => {
+      pc.setLocalDescription(offer);
+      sendSignal(peerId, {
+        type: "offer",
+        sdp: offer
+      });
+    });
+  }
+}
+
+/* ================= SIGNALING ================= */
+function sendSignal(to, payload) {
+  db.ref("voiceRooms/" + currentRoom + "/signals").push({
+    from: userId,
+    to,
+    ...payload
+  });
+}
+
+async function handleSignal(data) {
+  const peerId = data.from;
+  let pc = peers[peerId];
+
+  if (!pc) {
+    createPeer(peerId, false);
+    pc = peers[peerId];
+  }
+
+  if (data.type === "offer") {
+    await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    sendSignal(peerId, {
+      type: "answer",
+      sdp: answer
+    });
+  }
+
+  if (data.type === "answer") {
+    await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+  }
+
+  if (data.type === "ice") {
+    await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+  }
+}
+
+/* ================= LEAVE VOICE ================= */
+function leaveVoice() {
+  if (!currentRoom) return;
+
+  Object.values(peers).forEach(pc => pc.close());
+  Object.values(audioEls).forEach(a => a.remove());
+
+  peers = {};
+  audioEls = {};
+
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
+  }
+
+  db.ref("voiceRooms/" + currentRoom + "/members/" + userId).remove();
+  currentRoom = null;
+
+  document.getElementById("voiceStatus").textContent = "Not in voice";
+}
+
+/* ================= MUTE ================= */
+function toggleMute() {
+  muted = !muted;
+  if (localStream) {
+    localStream.getAudioTracks().forEach(t => t.enabled = !muted);
+  }
+}
 </script>
+
 
 </body>
 </html>
