@@ -1,39 +1,169 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Galaxacord Voice (REAL)</title>
+<title>Galaxacord</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
+<!-- Firebase -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
 <style>
-body {
-  background:#1e1f22;
-  color:white;
-  font-family:Arial;
-  padding:20px;
+/* ================= GLOBAL ================= */
+* {
+  box-sizing: border-box;
+  font-family: Arial, sans-serif;
 }
+body {
+  margin: 0;
+  background: #1e1f22;
+  color: white;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ================= LAYOUT ================= */
+#app {
+  display: grid;
+  grid-template-columns: 70px 240px 1fr 240px;
+  height: 100vh;
+}
+
+/* ================= SERVERS ================= */
+#servers {
+  background: #1e1f22;
+  padding: 10px;
+}
+.server {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: #313338;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+  cursor: pointer;
+}
+
+/* ================= CHANNELS ================= */
+#channels {
+  background: #2b2d31;
+  padding: 10px;
+}
+.channel {
+  padding: 6px;
+  cursor: pointer;
+}
+.channel:hover {
+  background: #3a3c43;
+}
+
+/* ================= CHAT ================= */
+#chat {
+  background: #313338;
+  display: flex;
+  flex-direction: column;
+}
+#messages {
+  flex: 1;
+  padding: 10px;
+  overflow-y: auto;
+}
+.message {
+  margin-bottom: 5px;
+}
+#inputBar {
+  display: flex;
+  padding: 10px;
+  gap: 5px;
+}
+#inputBar input {
+  flex: 1;
+  padding: 8px;
+}
+
+/* ================= USERS ================= */
+#users {
+  background: #2b2d31;
+  padding: 10px;
+}
+.user {
+  padding: 4px;
+}
+
+/* ================= VOICE ================= */
+.voice-status {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+/* ================= BUTTONS ================= */
 button {
-  background:#5865f2;
-  border:none;
-  padding:10px;
-  color:white;
-  cursor:pointer;
+  background: #5865f2;
+  border: none;
+  padding: 8px;
+  color: white;
+  cursor: pointer;
+}
+button.red {
+  background: #ed4245;
+}
+
+/* ================= SETTINGS ================= */
+#settings {
+  margin-top: 10px;
 }
 </style>
 </head>
 
 <body>
 
-<h2>Galaxacord – Real Voice</h2>
-<button onclick="join()">Join Voice</button>
-<button onclick="leave()">Leave</button>
-<div id="status">Idle</div>
+<div id="app">
+
+  <!-- SERVERS -->
+  <div id="servers">
+    <div class="server">🌌</div>
+  </div>
+
+  <!-- CHANNELS -->
+  <div id="channels">
+    <h4>TEXT</h4>
+    <div class="channel"># global</div>
+
+    <h4>VOICE</h4>
+    <div class="channel" onclick="joinVoice('vc1')">🔊 VC 1</div>
+    <div class="channel" onclick="joinVoice('vc2')">🔊 VC 2</div>
+
+    <div class="voice-status" id="voiceStatus">Not in voice</div>
+    <button class="red" onclick="leaveVoice()">Disconnect</button>
+
+    <hr>
+
+    <input id="nameInput" placeholder="Username">
+    <button onclick="saveName()">Save Name</button>
+  </div>
+
+  <!-- CHAT -->
+  <div id="chat">
+    <div id="messages"></div>
+    <div id="inputBar">
+      <input id="msg" placeholder="Message">
+      <button onclick="send()">Send</button>
+    </div>
+  </div>
+
+  <!-- USERS -->
+  <div id="users">
+    <h4>Online</h4>
+    <div id="userList"></div>
+  </div>
+
+</div>
 
 <script>
-/* ---------- FIREBASE ---------- */
+/* ================= FIREBASE ================= */
 firebase.initializeApp({
   apiKey: "AIzaSyBt_mZIfYnzcMygeQ11OTv1J59ARqsoN2c",
   databaseURL: "https://dcrd3upgraded-default-rtdb.firebaseio.com",
@@ -41,26 +171,94 @@ firebase.initializeApp({
 });
 const db = firebase.database();
 
-/* ---------- USER ---------- */
-const id = localStorage.getItem("vc_id") || crypto.randomUUID();
-localStorage.setItem("vc_id", id);
+/* ================= USER ================= */
+let userId = localStorage.getItem("gc_id");
+if (!userId) {
+  userId = crypto.randomUUID();
+  localStorage.setItem("gc_id", userId);
+}
 
-/* ---------- WEBRTC ---------- */
-let pc;
-let stream;
+let username = localStorage.getItem("gc_name");
+if (!username) {
+  username = "User" + Math.floor(Math.random() * 9000);
+  localStorage.setItem("gc_name", username);
+}
+document.getElementById("nameInput").value = username;
 
-const config = {
+/* ================= PRESENCE ================= */
+db.ref("users/" + userId).set({
+  username,
+  online: true
+});
+
+window.onbeforeunload = () => {
+  db.ref("users/" + userId).remove();
+  leaveVoice();
+};
+
+/* ================= CHAT ================= */
+function send() {
+  const input = document.getElementById("msg");
+  if (!input.value) return;
+
+  db.ref("messages").push({
+    user: username,
+    text: input.value
+  });
+
+  input.value = "";
+}
+
+db.ref("messages").limitToLast(100).on("child_added", snap => {
+  const m = snap.val();
+  const div = document.createElement("div");
+  div.className = "message";
+  div.textContent = m.user + ": " + m.text;
+  document.getElementById("messages").appendChild(div);
+});
+
+/* ================= USERS LIST ================= */
+db.ref("users").on("value", snap => {
+  const list = document.getElementById("userList");
+  list.innerHTML = "";
+  snap.forEach(u => {
+    const div = document.createElement("div");
+    div.className = "user";
+    div.textContent = u.val().username;
+    list.appendChild(div);
+  });
+});
+
+/* ================= USERNAME ================= */
+function saveName() {
+  const v = document.getElementById("nameInput").value.trim();
+  if (v.length < 3) return alert("Name too short");
+  username = v;
+  localStorage.setItem("gc_name", v);
+  db.ref("users/" + userId + "/username").set(v);
+}
+
+/* ================= VOICE (WEBRTC) ================= */
+let pc = null;
+let localStream = null;
+let currentVC = null;
+
+const rtcConfig = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
 };
 
-async function join() {
-  document.getElementById("status").textContent = "Connecting…";
+async function joinVoice(room) {
+  if (currentVC === room) return;
+  leaveVoice();
 
-  stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  currentVC = room;
+  document.getElementById("voiceStatus").textContent =
+    "🔊 Connecting to " + room;
 
-  pc = new RTCPeerConnection(config);
+  localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  pc = new RTCPeerConnection(rtcConfig);
 
-  stream.getTracks().forEach(t => pc.addTrack(t, stream));
+  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
 
   pc.ontrack = e => {
     const audio = document.createElement("audio");
@@ -71,23 +269,25 @@ async function join() {
 
   pc.onicecandidate = e => {
     if (e.candidate) {
-      db.ref("voice/ice").push(JSON.stringify(e.candidate));
+      db.ref("voice/" + room + "/ice").push(JSON.stringify(e.candidate));
     }
   };
 
-  db.ref("voice/ice").on("child_added", s => {
-    const cand = JSON.parse(s.val());
-    pc.addIceCandidate(new RTCIceCandidate(cand));
+  db.ref("voice/" + room + "/ice").on("child_added", s => {
+    pc.addIceCandidate(new RTCIceCandidate(JSON.parse(s.val())));
   });
 
-  const offerSnap = await db.ref("voice/offer").get();
+  const offerRef = db.ref("voice/" + room + "/offer");
+  const answerRef = db.ref("voice/" + room + "/answer");
+
+  const offerSnap = await offerRef.get();
 
   if (!offerSnap.exists()) {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    await db.ref("voice/offer").set(JSON.stringify(offer));
+    await offerRef.set(JSON.stringify(offer));
 
-    db.ref("voice/answer").on("value", async s => {
+    answerRef.on("value", async s => {
       if (s.exists() && !pc.currentRemoteDescription) {
         await pc.setRemoteDescription(
           new RTCSessionDescription(JSON.parse(s.val()))
@@ -100,18 +300,22 @@ async function join() {
     );
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    await db.ref("voice/answer").set(JSON.stringify(answer));
+    await answerRef.set(JSON.stringify(answer));
   }
 
-  document.getElementById("status").textContent = "🔊 Connected";
+  document.getElementById("voiceStatus").textContent =
+    "🔊 In " + room;
 }
 
-function leave() {
-  if (stream) stream.getTracks().forEach(t => t.stop());
+function leaveVoice() {
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
+  }
   if (pc) pc.close();
   pc = null;
-  db.ref("voice").remove();
-  document.getElementById("status").textContent = "Disconnected";
+  currentVC = null;
+  document.getElementById("voiceStatus").textContent = "Not in voice";
 }
 </script>
 
