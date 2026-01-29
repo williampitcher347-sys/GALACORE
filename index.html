@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Galaxacord</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: "Segoe UI", sans-serif;
+  background: #313338;
+  color: #fff;
+}
+
+button {
+  background: #5865F2;
+  border: none;
+  color: white;
+  padding: 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+input {
+  padding: 8px;
+  border-radius: 5px;
+  border: none;
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+#login {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#loginBox {
+  background: #1e1f22;
+  padding: 30px;
+  border-radius: 8px;
+  width: 280px;
+}
+
+#app { display: none; height: 100vh; }
+#layout { display: flex; height: 100%; }
+
+#servers {
+  width: 72px;
+  background: #1e1f22;
+}
+
+.server {
+  width: 48px;
+  height: 48px;
+  background: #313338;
+  margin: 12px auto;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+#sidebar {
+  width: 240px;
+  background: #2b2d31;
+  padding: 10px;
+}
+
+.tab {
+  padding: 6px;
+  cursor: pointer;
+  opacity: 0.8;
+}
+.tab:hover { opacity: 1; }
+
+.friend {
+  padding: 6px;
+  background: #313338;
+  margin-bottom: 5px;
+  border-radius: 4px;
+}
+
+#chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+#messages {
+  flex: 1;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.message {
+  margin-bottom: 10px;
+}
+
+.user {
+  color: #5865F2;
+  font-size: 0.8em;
+}
+
+#inputBar {
+  padding: 10px;
+  display: flex;
+  background: #1e1f22;
+}
+#inputBar input { flex: 1; margin-right: 6px; }
+</style>
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div id="login">
+  <div id="loginBox">
+    <h2>🌌 Galaxacord</h2>
+    <input id="email" placeholder="Email">
+    <input id="password" type="password" placeholder="Password">
+    <button onclick="login()">Login</button>
+    <button onclick="register()">Register</button>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <div id="layout">
+
+    <div id="servers">
+      <div class="server" onclick="showFriends()">👥</div>
+      <div id="serverList"></div>
+    </div>
+
+    <div id="sidebar">
+      <div class="tab" onclick="showFriends()">Friends</div>
+      <div class="tab" onclick="showAddFriend()">Add Friend</div>
+      <hr>
+
+      <div id="friendsList"></div>
+      <div id="addFriend" style="display:none">
+        <input id="searchEmail" placeholder="Search email">
+        <button onclick="sendFriendRequest()">Send Request</button>
+        <div id="searchResult"></div>
+      </div>
+    </div>
+
+    <div id="chat">
+      <div id="messages"></div>
+      <div id="inputBar" style="display:none">
+        <input id="msg" placeholder="Message">
+        <button onclick="sendMessage()">Send</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "dcrd-97f60.firebaseapp.com",
+  databaseURL: "https://dcrd-97f60-default-rtdb.firebaseio.com",
+  projectId: "dcrd-97f60"
+};
+
+firebase.initializeApp(firebaseConfig);
+
+const auth = firebase.auth();
+const db = firebase.database();
+
+let currentDM = null;
+
+auth.onAuthStateChanged(user => {
+  if (user) {
+    login.style.display = "none";
+    app.style.display = "block";
+    db.ref("users/" + user.uid).set({ email: user.email });
+    loadFriends();
+  } else {
+    login.style.display = "flex";
+    app.style.display = "none";
+  }
+});
+
+function login() {
+  auth.signInWithEmailAndPassword(email.value, password.value);
+}
+
+function register() {
+  auth.createUserWithEmailAndPassword(email.value, password.value);
+}
+
+function showFriends() {
+  addFriend.style.display = "none";
+  friendsList.style.display = "block";
+  messages.innerHTML = "<h3>Friends</h3>";
+  inputBar.style.display = "none";
+}
+
+function showAddFriend() {
+  friendsList.style.display = "none";
+  addFriend.style.display = "block";
+  messages.innerHTML = "<h3>Add a friend</h3>";
+  inputBar.style.display = "none";
+}
+
+function sendFriendRequest() {
+  const email = searchEmail.value;
+  db.ref("users").once("value", snap => {
+    snap.forEach(u => {
+      if (u.val().email === email) {
+        db.ref("friendRequests/" + u.key + "/" + auth.currentUser.uid).set(true);
+        searchResult.innerText = "Friend request sent!";
+      }
+    });
+  });
+}
+
+function loadFriends() {
+  const uid = auth.currentUser.uid;
+  db.ref("friends/" + uid).on("value", snap => {
+    friendsList.innerHTML = "";
+    snap.forEach(f => {
+      const div = document.createElement("div");
+      div.className = "friend";
+      div.innerText = f.key;
+      div.onclick = () => openDM(f.key);
+      friendsList.appendChild(div);
+    });
+  });
+
+  db.ref("friendRequests/" + uid).on("child_added", snap => {
+    if (confirm("Accept friend request?")) {
+      db.ref("friends/" + uid + "/" + snap.key).set(true);
+      db.ref("friends/" + snap.key + "/" + uid).set(true);
+      db.ref("friendRequests/" + uid + "/" + snap.key).remove();
+    }
+  });
+}
+
+function openDM(friendId) {
+  currentDM = friendId;
+  messages.innerHTML = "";
+  inputBar.style.display = "flex";
+
+  const path = uidPath(auth.currentUser.uid, friendId);
+  db.ref("dms/" + path).limitToLast(50).on("child_added", snap => {
+    const d = snap.val();
+    const m = document.createElement("div");
+    m.className = "message";
+    m.innerHTML = `<div class="user">${d.user}</div>${d.text}`;
+    messages.appendChild(m);
+  });
+}
+
+function sendMessage() {
+  if (!currentDM) return;
+  const path = uidPath(auth.currentUser.uid, currentDM);
+  db.ref("dms/" + path).push({
+    text: msg.value,
+    user: auth.currentUser.email,
+    time: Date.now()
+  });
+  msg.value = "";
+}
+
+function uidPath(a,b) {
+  return [a,b].sort().join("_");
+}
+</script>
+
+</body>
+</html>
