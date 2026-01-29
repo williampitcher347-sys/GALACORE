@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
 <title>Galaxacord</title>
@@ -9,40 +9,29 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
 
 <style>
-body { margin:0; font-family:Arial; background:#1e1f22; color:white }
-.hidden { display:none }
+body{margin:0;font-family:Arial;background:#1e1f22;color:white}
+.hidden{display:none}
+#auth{height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
+input,button,select{padding:8px;border:none;border-radius:5px}
+button{background:#5865f2;color:white;cursor:pointer}
 
-#auth {
-  height:100vh; display:flex; flex-direction:column;
-  align-items:center; justify-content:center; gap:8px
-}
-input, button {
-  width:260px; padding:10px; border:none; border-radius:5px
-}
-button { background:#5865f2; color:white; cursor:pointer }
-#error { color:#ff5555 }
+#app{display:flex;height:100vh}
+#servers{width:70px;background:#1e1f22;padding:5px}
+.server{background:#313338;border-radius:50%;height:50px;width:50px;margin:5px auto;display:flex;align-items:center;justify-content:center}
 
-#app { display:flex; height:100vh }
-#sidebar {
-  width:260px; background:#2b2d31; padding:10px
-}
-#main {
-  flex:1; background:#313338;
-  display:flex; flex-direction:column
-}
-#messages { flex:1; padding:10px; overflow-y:auto }
-#msg { padding:10px; border:none; background:#383a40; color:white }
+#channels{width:220px;background:#2b2d31;padding:10px}
+.channel{padding:6px;cursor:pointer}
+.channel:hover{background:#3f4147}
+.channel.active{background:#5865f2}
 
-.friend { padding:6px; cursor:pointer }
-.friend:hover { background:#3f4147 }
+#chat{flex:1;background:#313338;display:flex;flex-direction:column}
+#messages{flex:1;padding:10px;overflow-y:auto}
+#msg{background:#383a40;color:white}
 
-.voice {
-  margin-top:10px;
-  padding:8px;
-  background:#202225;
-  cursor:pointer;
-}
-.voice.active { background:#3ba55d }
+#members{width:200px;background:#2b2d31;padding:10px}
+
+.settings{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+background:#202225;padding:15px;border-radius:8px}
 </style>
 </head>
 
@@ -50,7 +39,7 @@ button { background:#5865f2; color:white; cursor:pointer }
 
 <!-- AUTH -->
 <div id="auth">
-  <h1>Galaxacord</h1>
+  <h2>Galaxacord</h2>
   <input id="email" placeholder="Email">
   <input id="password" type="password" placeholder="Password">
   <input id="username" placeholder="Username (register)">
@@ -61,218 +50,213 @@ button { background:#5865f2; color:white; cursor:pointer }
 
 <!-- APP -->
 <div id="app" class="hidden">
-  <div id="sidebar">
-    <h3 id="me"></h3>
-
-    <div class="voice" id="voiceBtn" onclick="toggleVoice()">
-      🔊 Global Voice
-    </div>
-
-    <input id="friendInput" placeholder="username#tag">
-    <button onclick="addFriend()">Add Friend</button>
-
-    <h4>Friends</h4>
-    <div id="friends"></div>
+  <div id="servers">
+    <div class="server">G</div>
   </div>
 
-  <div id="main">
+  <div id="channels">
+    <h4>VOICE</h4>
+    <div id="voiceChannels"></div>
+    <hr>
+    <button onclick="openSettings()">⚙ Settings</button>
+  </div>
+
+  <div id="chat">
     <div id="messages"></div>
     <input id="msg" placeholder="Message" onkeydown="if(event.key==='Enter')sendMsg()">
   </div>
+
+  <div id="members">
+    <h4>Members</h4>
+    <div id="memberList"></div>
+  </div>
+</div>
+
+<!-- SETTINGS -->
+<div id="settings" class="settings hidden">
+  <h3>Audio Settings</h3>
+  <label>Input</label><br>
+  <select id="micSelect"></select><br><br>
+  <label>Output</label><br>
+  <select id="speakerSelect"></select><br><br>
+  <button onclick="applyDevices()">Apply</button>
+  <button onclick="closeSettings()">Close</button>
 </div>
 
 <script>
-/* 🔥 BRAND NEW FIREBASE PROJECT CONFIG 🔥 */
+/* 🔥 NEW FIREBASE PROJECT ONLY 🔥 */
 firebase.initializeApp({
-  apiKey: "AIzaSyCgD_YaDaGAgRdY4RJIRO_6JP20S68Y6aA",
+apiKey: "AIzaSyCgD_YaDaGAgRdY4RJIRO_6JP20S68Y6aA",
   authDomain: "dcrd2-27614.firebaseapp.com",
   databaseURL: "https://dcrd2-27614-default-rtdb.firebaseio.com",
   projectId: "dcrd2-27614",
   storageBucket: "dcrd2-27614.firebasestorage.app",
   messagingSenderId: "502344350795",
-  appId: "1:502344350795:web:086eaaf15aa5355d3361ce"
+  appId: "1:502344350795:web:086eaaf15aa5355d3361ce",
 });
 
-const auth = firebase.auth();
-const db = firebase.database();
+const auth=firebase.auth(),db=firebase.database();
+let currentRoom=null,currentChat=null;
+let localStream=null,peers={},audioEls=[];
 
-let currentChat = null;
-let localStream = null;
-let peers = {};
-let inVoice = false;
-
-/* AUTH STATE */
-auth.onAuthStateChanged(user => {
-  if (user) {
-    authDiv.style.display = "none";
-    app.classList.remove("hidden");
-    loadMe();
-    loadFriends();
-  } else {
-    authDiv.style.display = "flex";
-    app.classList.add("hidden");
-  }
+/* AUTH */
+auth.onAuthStateChanged(u=>{
+  auth.style.display=u?"none":"flex";
+  app.classList.toggle("hidden",!u);
+  if(u)init();
 });
 
-const authDiv = document.getElementById("auth");
-
-/* REGISTER */
-function register() {
-  if (!username.value) return error.innerText = "Username required";
-
-  auth.createUserWithEmailAndPassword(email.value, password.value)
-    .then(res => {
-      const tag = "#" + Math.floor(1000 + Math.random()*9000);
-      return db.ref("users/" + res.user.uid).set({
-        username: username.value,
-        tag
-      });
-    })
-    .catch(e => error.innerText = e.message);
+function register(){
+ auth.createUserWithEmailAndPassword(email.value,password.value)
+ .then(r=>db.ref("users/"+r.user.uid).set({
+   username:username.value,
+   tag:"#"+Math.floor(1000+Math.random()*9000)
+ }))
+ .catch(e=>error.innerText=e.message);
+}
+function login(){
+ auth.signInWithEmailAndPassword(email.value,password.value)
+ .catch(e=>error.innerText=e.message);
 }
 
-/* LOGIN */
-function login() {
-  auth.signInWithEmailAndPassword(email.value, password.value)
-    .catch(e => error.innerText = e.message);
+/* INIT */
+function init(){
+ createVoiceChannels();
+ loadDevices();
 }
 
-/* PROFILE */
-function loadMe() {
-  db.ref("users/" + auth.currentUser.uid).once("value").then(s => {
-    me.innerText = s.val().username + s.val().tag;
-  });
+/* VOICE CHANNELS */
+function createVoiceChannels(){
+ voiceChannels.innerHTML="";
+ for(let i=1;i<=5;i++){
+   const d=document.createElement("div");
+   d.className="channel";
+   d.innerText="🔊 Global "+i;
+   d.onclick=()=>joinVoice("global"+i,d);
+   voiceChannels.appendChild(d);
+ }
 }
 
-/* FRIENDS */
-function addFriend() {
-  const val = friendInput.value;
-  if (!val.includes("#")) return;
+async function joinVoice(room,el){
+ document.querySelectorAll(".channel").forEach(c=>c.classList.remove("active"));
+ el.classList.add("active");
 
-  const [name, tag] = val.split("#");
+ leaveVoice();
+ currentRoom=room;
+ currentChat="text_"+room;
 
-  db.ref("users").once("value").then(snap => {
-    snap.forEach(u => {
-      if (u.val().username === name && u.val().tag === "#" + tag) {
-        const uid = auth.currentUser.uid;
-        db.ref("friends/" + uid + "/" + u.key).set(true);
-        db.ref("friends/" + u.key + "/" + uid).set(true);
-      }
-    });
-  });
+ localStream=await navigator.mediaDevices.getUserMedia({audio:true});
+ const uid=auth.currentUser.uid;
 
-  friendInput.value = "";
+ const ref=db.ref("voice/"+room+"/"+uid);
+ ref.set(true);
+ ref.onDisconnect().remove();
+
+ db.ref("voice/"+room).on("value",snap=>{
+   memberList.innerHTML="";
+   snap.forEach(u=>{
+     const m=document.createElement("div");
+     m.innerText=u.key;
+     memberList.appendChild(m);
+   });
+ });
+
+ db.ref("voice/"+room).on("child_added",s=>{
+   if(s.key!==uid)createPeer(s.key,true);
+ });
+
+ loadChat();
 }
 
-function loadFriends() {
-  const uid = auth.currentUser.uid;
-  db.ref("friends/" + uid).on("value", snap => {
-    friends.innerHTML = "";
-    snap.forEach(f => {
-      db.ref("users/" + f.key).once("value").then(u => {
-        const d = document.createElement("div");
-        d.className = "friend";
-        d.innerText = u.val().username + u.val().tag;
-        d.onclick = () => openDM(f.key);
-        friends.appendChild(d);
-      });
-    });
-  });
+function leaveVoice(){
+ Object.values(peers).forEach(p=>p.close());
+ peers={};
+ if(currentRoom)
+ db.ref("voice/"+currentRoom+"/"+auth.currentUser.uid).remove();
 }
 
-/* DMS */
-function openDM(other) {
-  currentChat = [auth.currentUser.uid, other].sort().join("_");
-  messages.innerHTML = "";
+/* WEBRTC */
+function createPeer(id,init){
+ const pc=new RTCPeerConnection();
+ peers[id]=pc;
 
-  db.ref("messages/" + currentChat).off();
-  db.ref("messages/" + currentChat).on("child_added", s => {
-    const d = document.createElement("div");
-    d.innerText = s.val().text;
-    messages.appendChild(d);
-  });
+ localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
+ pc.ontrack=e=>{
+   const a=new Audio();
+   a.srcObject=e.streams[0];
+   a.autoplay=true;
+   audioEls.push(a);
+ };
+
+ const ref=db.ref("signals/"+currentRoom+"/"+id+"/"+auth.currentUser.uid);
+ pc.onicecandidate=e=>e.candidate&&ref.push({ice:e.candidate});
+
+ if(init){
+   pc.createOffer().then(o=>{
+     pc.setLocalDescription(o);
+     ref.push({offer:o});
+   });
+ }
+
+ db.ref("signals/"+currentRoom+"/"+auth.currentUser.uid+"/"+id)
+ .on("child_added",async s=>{
+   const d=s.val();
+   if(d.offer){
+     await pc.setRemoteDescription(d.offer);
+     const a=await pc.createAnswer();
+     await pc.setLocalDescription(a);
+     ref.push({answer:a});
+   }
+   if(d.answer)await pc.setRemoteDescription(d.answer);
+   if(d.ice)await pc.addIceCandidate(d.ice);
+ });
 }
 
-function sendMsg() {
-  if (!currentChat || !msg.value) return;
-  db.ref("messages/" + currentChat).push({
-    text: msg.value,
-    sender: auth.currentUser.uid,
-    time: Date.now()
-  });
-  msg.value = "";
+/* TEXT CHAT */
+function loadChat(){
+ messages.innerHTML="";
+ db.ref("messages/"+currentChat).off();
+ db.ref("messages/"+currentChat).on("child_added",s=>{
+   const d=document.createElement("div");
+   d.innerText=s.val().text;
+   messages.appendChild(d);
+ });
+}
+function sendMsg(){
+ if(!currentChat||!msg.value)return;
+ db.ref("messages/"+currentChat).push({
+   text:msg.value,
+   uid:auth.currentUser.uid
+ });
+ msg.value="";
 }
 
-/* 🔊 VOICE CHAT (WEBRTC) */
-async function toggleVoice() {
-  if (inVoice) leaveVoice();
-  else joinVoice();
+/* SETTINGS */
+async function loadDevices(){
+ const devices=await navigator.mediaDevices.enumerateDevices();
+ micSelect.innerHTML="";
+ speakerSelect.innerHTML="";
+ devices.forEach(d=>{
+   if(d.kind==="audioinput"){
+     micSelect.add(new Option(d.label,d.deviceId));
+   }
+   if(d.kind==="audiooutput"){
+     speakerSelect.add(new Option(d.label,d.deviceId));
+   }
+ });
 }
-
-async function joinVoice() {
-  inVoice = true;
-  voiceBtn.classList.add("active");
-
-  localStream = await navigator.mediaDevices.getUserMedia({ audio:true });
-
-  const uid = auth.currentUser.uid;
-  const room = "global";
-
-  const roomRef = db.ref("voice/" + room + "/" + uid);
-  roomRef.set(true);
-  roomRef.onDisconnect().remove();
-
-  db.ref("voice/" + room).on("child_added", snap => {
-    if (snap.key !== uid) createPeer(snap.key, true);
-  });
+function applyDevices(){
+ if(localStream){
+   navigator.mediaDevices.getUserMedia({
+     audio:{deviceId:micSelect.value}
+   }).then(s=>localStream=s);
+ }
+ audioEls.forEach(a=>{
+   if(a.setSinkId)a.setSinkId(speakerSelect.value);
+ });
 }
-
-function leaveVoice() {
-  inVoice = false;
-  voiceBtn.classList.remove("active");
-
-  Object.values(peers).forEach(p => p.close());
-  peers = {};
-
-  db.ref("voice/global/" + auth.currentUser.uid).remove();
-}
-
-function createPeer(peerId, initiator) {
-  const pc = new RTCPeerConnection();
-  peers[peerId] = pc;
-
-  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-  pc.ontrack = e => {
-    const a = new Audio();
-    a.srcObject = e.streams[0];
-    a.autoplay = true;
-  };
-
-  const ref = db.ref("signals/global/" + peerId + "/" + auth.currentUser.uid);
-
-  pc.onicecandidate = e => e.candidate && ref.push({ ice:e.candidate });
-
-  if (initiator) {
-    pc.createOffer().then(o => {
-      pc.setLocalDescription(o);
-      ref.push({ offer:o });
-    });
-  }
-
-  db.ref("signals/global/" + auth.currentUser.uid + "/" + peerId)
-    .on("child_added", async snap => {
-      const d = snap.val();
-      if (d.offer) {
-        await pc.setRemoteDescription(d.offer);
-        const ans = await pc.createAnswer();
-        await pc.setLocalDescription(ans);
-        ref.push({ answer:ans });
-      }
-      if (d.answer) await pc.setRemoteDescription(d.answer);
-      if (d.ice) await pc.addIceCandidate(d.ice);
-    });
-}
+function openSettings(){settings.classList.remove("hidden")}
+function closeSettings(){settings.classList.add("hidden")}
 </script>
-
 </body>
 </html>
