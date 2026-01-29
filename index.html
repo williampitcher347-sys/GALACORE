@@ -6,7 +6,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
 <style>
@@ -29,14 +28,14 @@ input {
   width: 100%;
 }
 
-#auth, #usernameSetup {
+#usernameScreen {
   height: 100vh;
   display: flex;
   justify-content: center;
   align-items: center;
 }
 
-.auth-box {
+.box {
   background: #2b2d31;
   padding: 25px;
   width: 320px;
@@ -68,23 +67,12 @@ input {
 </head>
 <body>
 
-<!-- AUTH -->
-<div id="auth">
-  <div class="auth-box">
+<!-- USERNAME PICK -->
+<div id="usernameScreen">
+  <div class="box">
     <h2>Galaxacord</h2>
-    <input id="email" placeholder="Email">
-    <input id="password" type="password" placeholder="Password">
-    <button onclick="login()">Login</button>
-    <button onclick="register()">Register</button>
-  </div>
-</div>
-
-<!-- USERNAME SETUP -->
-<div id="usernameSetup" class="hidden">
-  <div class="auth-box">
-    <h2>Choose Username</h2>
-    <input id="newUsername" placeholder="Username">
-    <button onclick="saveUsername()">Save</button>
+    <input id="usernameInput" placeholder="Choose a username">
+    <button onclick="enterApp()">Enter</button>
   </div>
 </div>
 
@@ -121,100 +109,60 @@ input {
 </div>
 
 <script>
-/* FIREBASE CONFIG */
+/* FIREBASE */
 firebase.initializeApp({
   apiKey: "AIzaSyBt_mZIfYnzcMygeQ11OTv1J59ARqsoN2c",
-  authDomain: "dcrd3upgraded.firebaseapp.com",
   databaseURL: "https://dcrd3upgraded-default-rtdb.firebaseio.com",
-  projectId: "dcrd3upgraded",
-  storageBucket: "dcrd3upgraded.firebasestorage.app",
-  messagingSenderId: "22145403485",
-  appId: "1:22145403485:web:ec5ffdde4cebe37a7b1bb4"
+  projectId: "dcrd3upgraded"
 });
 
-const auth = firebase.auth();
 const db = firebase.database();
 
-let currentUser = null;
+/* SESSION */
+let sessionId = localStorage.getItem("galaxacord_id");
+if (!sessionId) {
+  sessionId = crypto.randomUUID();
+  localStorage.setItem("galaxacord_id", sessionId);
+}
+
+let username = localStorage.getItem("galaxacord_name");
 let currentVoice = null;
 let localStream = null;
 
-/* AUTH STATE */
-auth.onAuthStateChanged(async user => {
-  if (!user) {
-    showAuth();
-    return;
-  }
+/* AUTO JOIN */
+if (username) startApp();
 
-  currentUser = user;
-  const snap = await db.ref("users/" + user.uid).get();
+/* ENTER */
+function enterApp() {
+  const name = usernameInput.value.trim();
+  if (name.length < 3) return alert("Username too short");
 
-  if (!snap.exists() || !snap.val().username) {
-    showUsernameSetup();
-  } else {
-    startApp();
-  }
-});
+  username = name;
+  localStorage.setItem("galaxacord_name", name);
 
-/* UI STATES */
-function showAuth() {
-  authUI(true);
-}
-
-function showUsernameSetup() {
-  authUI(false);
-  usernameSetup.classList.remove("hidden");
-}
-
-function startApp() {
-  authUI(false);
-  app.classList.remove("hidden");
-  setOnline();
-  loadChat();
-  loadUsers();
-}
-
-function authUI(show) {
-  auth.classList.toggle("hidden", !show);
-  usernameSetup.classList.add("hidden");
-  app.classList.add("hidden");
-}
-
-/* AUTH ACTIONS */
-function register() {
-  auth.createUserWithEmailAndPassword(email.value, password.value)
-    .then(() => {
-      alert("Nice! Now log in.");
-      auth.signOut();
-    })
-    .catch(e => alert(e.message));
-}
-
-function login() {
-  auth.signInWithEmailAndPassword(email.value, password.value)
-    .catch(e => alert(e.message));
-}
-
-/* USERNAME */
-function saveUsername() {
-  const name = newUsername.value.trim();
-  if (name.length < 3) return alert("Too short");
-
-  const tag = Math.floor(1000 + Math.random() * 9000);
-  db.ref("users/" + currentUser.uid).set({
-    username: name,
-    tag,
+  db.ref("users/" + sessionId).set({
+    username,
     online: true
   });
 
   startApp();
 }
 
+/* START */
+function startApp() {
+  usernameScreen.classList.add("hidden");
+  app.classList.remove("hidden");
+
+  setOnline();
+  loadChat();
+  loadUsers();
+}
+
 /* ONLINE */
 function setOnline() {
-  db.ref("users/" + currentUser.uid + "/online").set(true);
+  db.ref("users/" + sessionId + "/online").set(true);
   window.onbeforeunload = () => {
-    db.ref("users/" + currentUser.uid + "/online").set(false);
+    db.ref("users/" + sessionId).remove();
     leaveVoice();
   };
 }
@@ -223,7 +171,7 @@ function setOnline() {
 function sendMessage() {
   if (!msg.value) return;
   db.ref("messages").push({
-    uid: currentUser.uid,
+    user: username,
     text: msg.value
   });
   msg.value = "";
@@ -232,8 +180,9 @@ function sendMessage() {
 function loadChat() {
   messages.innerHTML = "";
   db.ref("messages").limitToLast(100).on("child_added", snap => {
+    const m = snap.val();
     const d = document.createElement("div");
-    d.textContent = snap.val().text;
+    d.textContent = m.user + ": " + m.text;
     messages.appendChild(d);
     messages.scrollTop = messages.scrollHeight;
   });
@@ -244,11 +193,10 @@ function loadUsers() {
   db.ref("users").on("value", snap => {
     users.innerHTML = "";
     snap.forEach(u => {
-      const v = u.val();
-      if (!v.online) return;
+      if (!u.val().online) return;
       const d = document.createElement("div");
       d.className = "user";
-      d.textContent = v.username + "#" + v.tag;
+      d.textContent = u.val().username;
       users.appendChild(d);
     });
   });
