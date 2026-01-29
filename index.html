@@ -1,129 +1,130 @@
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<title>Galaxacord Voice Test</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-
-<style>
-body {
-  margin: 0;
-  background: #1e1f22;
-  color: white;
-  font-family: Arial;
-}
-#ui {
-  padding: 20px;
-}
-button {
-  padding: 10px;
-  background: #5865f2;
-  border: none;
-  color: white;
-  cursor: pointer;
-}
-</style>
-</head>
-
-<body>
-
-<div id="ui">
-  <h2>Galaxacord Voice</h2>
-  <input id="name" placeholder="Username"><br><br>
-  <button onclick="join()">Join Voice</button>
-  <button onclick="leave()">Leave</button>
-  <div id="status">Idle</div>
-</div>
-
 <script>
-/* ---------- FIREBASE ---------- */
+/* FIREBASE */
 firebase.initializeApp({
   apiKey: "AIzaSyBt_mZIfYnzcMygeQ11OTv1J59ARqsoN2c",
   databaseURL: "https://dcrd3upgraded-default-rtdb.firebaseio.com",
   projectId: "dcrd3upgraded"
 });
-
 const db = firebase.database();
 
-/* ---------- USER ---------- */
-const id = localStorage.getItem("id") || crypto.randomUUID();
-localStorage.setItem("id", id);
+/* ELEMENTS */
+const nameScreen = document.getElementById("nameScreen");
+const app = document.getElementById("app");
+const nameInput = document.getElementById("nameInput");
+const messages = document.getElementById("messages");
+const users = document.getElementById("users");
+const msg = document.getElementById("msg");
+const voiceStatus = document.getElementById("voiceStatus");
 
-/* ---------- WEBRTC ---------- */
-let pc;
-let stream;
+/* SESSION */
+let id = localStorage.getItem("galaxacord_id");
+if (!id) {
+  id = crypto.randomUUID();
+  localStorage.setItem("galaxacord_id", id);
+}
 
-const iceConfig = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
-};
+let username = localStorage.getItem("galaxacord_name");
+let currentVoice = null;
+let stream = null;
 
-/* ---------- JOIN VOICE ---------- */
-async function join() {
-  document.getElementById("status").textContent = "Connecting…";
+/* AUTO START */
+if (username) start();
+
+/* ENTER APP */
+function enter() {
+  const name = nameInput.value.trim();
+  if (name.length < 3) {
+    alert("Username must be at least 3 characters");
+    return;
+  }
+
+  username = name;
+  localStorage.setItem("galaxacord_name", name);
+
+  db.ref("users/" + id).set({
+    username,
+    online: true
+  });
+
+  start();
+}
+
+/* START APP */
+function start() {
+  nameScreen.classList.add("hidden");
+  app.classList.remove("hidden");
+
+  setOnline();
+  loadMessages();
+  loadUsers();
+}
+
+/* ONLINE */
+function setOnline() {
+  db.ref("users/" + id + "/online").set(true);
+
+  window.onbeforeunload = () => {
+    db.ref("users/" + id).remove();
+    leaveVoice();
+  };
+}
+
+/* CHAT */
+function send() {
+  if (!msg.value) return;
+
+  db.ref("messages").push({
+    user: username,
+    text: msg.value
+  });
+
+  msg.value = "";
+}
+
+function loadMessages() {
+  messages.innerHTML = "";
+  db.ref("messages").limitToLast(100).on("child_added", snap => {
+    const m = snap.val();
+    const div = document.createElement("div");
+    div.textContent = m.user + ": " + m.text;
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  });
+}
+
+/* USERS */
+function loadUsers() {
+  db.ref("users").on("value", snap => {
+    users.innerHTML = "";
+    snap.forEach(u => {
+      if (!u.val().online) return;
+      const div = document.createElement("div");
+      div.className = "user";
+      div.textContent = u.val().username;
+      users.appendChild(div);
+    });
+  });
+}
+
+/* VOICE */
+async function joinVoice(room) {
+  if (currentVoice === room) return;
+  leaveVoice();
 
   stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-  pc = new RTCPeerConnection(iceConfig);
-
-  stream.getTracks().forEach(t => pc.addTrack(t, stream));
-
-  pc.ontrack = e => {
-    const audio = document.createElement("audio");
-    audio.srcObject = e.streams[0];
-    audio.autoplay = true;
-    document.body.appendChild(audio);
-  };
-
-  pc.onicecandidate = e => {
-    if (e.candidate) {
-      db.ref("voice/ice").push(JSON.stringify(e.candidate));
-    }
-  };
-
-  db.ref("voice/ice").on("child_added", s => {
-    const c = JSON.parse(s.val());
-    pc.addIceCandidate(new RTCIceCandidate(c));
-  });
-
-  db.ref("voice/offer").once("value", async snap => {
-    if (snap.exists()) {
-      await pc.setRemoteDescription(
-        new RTCSessionDescription(JSON.parse(snap.val()))
-      );
-
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      db.ref("voice/answer").set(JSON.stringify(answer));
-    } else {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      db.ref("voice/offer").set(JSON.stringify(offer));
-
-      db.ref("voice/answer").on("value", async s => {
-        if (s.exists() && !pc.currentRemoteDescription) {
-          await pc.setRemoteDescription(
-            new RTCSessionDescription(JSON.parse(s.val()))
-          );
-        }
-      });
-    }
-  });
-
-  document.getElementById("status").textContent = "🔊 In Voice";
+  currentVoice = room;
+  voiceStatus.textContent = "🔊 Connected to " + room;
 }
 
-/* ---------- LEAVE ---------- */
-function leave() {
-  if (stream) stream.getTracks().forEach(t => t.stop());
-  if (pc) pc.close();
-  pc = null;
-  db.ref("voice").remove();
-  document.getElementById("status").textContent = "Disconnected";
+function leaveVoice() {
+  if (!currentVoice) return;
+
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+
+  currentVoice = null;
+  voiceStatus.textContent = "Not in voice";
 }
 </script>
-
-</body>
-</html>
