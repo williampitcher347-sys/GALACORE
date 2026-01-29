@@ -1,168 +1,243 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <title>Galaxacord</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
 <style>
-body { margin:0; font-family:system-ui; background:#1e1f22; color:white }
-.hidden{display:none}
-#auth{height:100vh;display:flex;align-items:center;justify-content:center}
-.box{background:#2b2d31;padding:30px;width:320px;border-radius:10px}
-input,button{width:100%;padding:10px;margin-top:10px;border-radius:6px;border:none}
-button{background:#5865f2;color:white;cursor:pointer}
-#app{display:flex;height:100vh}
-#sidebar{width:240px;background:#2b2d31;padding:10px}
-#chat{flex:1;background:#313338;display:flex;flex-direction:column}
-#messages{flex:1;padding:10px;overflow-y:auto}
-#input{display:flex;padding:10px}
-#input input{flex:1}
-.user{cursor:pointer;padding:5px;border-radius:5px}
-.user:hover{background:#3f4147}
+* { box-sizing: border-box; font-family: Arial, sans-serif; }
+body { margin: 0; background: #1e1f22; color: white; height: 100vh; overflow: hidden; }
+
+.hidden { display: none; }
+
+#auth {
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.auth-box {
+  background: #2b2d31;
+  padding: 30px;
+  width: 320px;
+  border-radius: 8px;
+}
+
+.auth-box input, .auth-box button {
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px;
+}
+
+button {
+  background: #5865f2;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+#app {
+  display: grid;
+  grid-template-columns: 70px 240px 1fr 240px;
+  height: 100vh;
+}
+
+.servers {
+  background: #1e1f22;
+  padding: 10px;
+}
+
+.channels {
+  background: #2b2d31;
+  padding: 10px;
+}
+
+.chat {
+  background: #313338;
+  display: flex;
+  flex-direction: column;
+}
+
+.messages {
+  flex: 1;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.input {
+  display: flex;
+}
+
+.input input {
+  flex: 1;
+  padding: 10px;
+}
+
+.members {
+  background: #2b2d31;
+  padding: 10px;
+}
+
+.voice {
+  background: #232428;
+  padding: 10px;
+}
+
+.user {
+  padding: 5px;
+  cursor: pointer;
+}
 </style>
 </head>
 <body>
 
+<!-- AUTH -->
 <div id="auth">
-  <div class="box">
-    <h2>Galaxacord</h2>
+  <div class="auth-box">
+    <h2 id="authTitle">Login</h2>
     <input id="email" placeholder="Email">
     <input id="password" type="password" placeholder="Password">
-    <button id="loginBtn">Login</button>
-    <button id="registerBtn">Register</button>
-    <div id="msg"></div>
+    <input id="username" placeholder="Username (register only)">
+    <button onclick="login()">Login</button>
+    <button onclick="register()">Register</button>
   </div>
 </div>
 
+<!-- APP -->
 <div id="app" class="hidden">
-  <div id="sidebar">
-    <h4>Friends</h4>
-    <input id="searchUser" placeholder="Add friend by username#tag">
-    <button onclick="sendFriendRequest()">Add</button>
-    <div id="friends"></div>
-
-    <h4>Requests</h4>
-    <div id="requests"></div>
+  <div class="servers">🌌</div>
+  <div class="channels">
+    <h4>Text</h4>
+    <div># global</div>
+    <h4>Voice</h4>
+    <div onclick="joinVoice('vc1')">🔊 VC 1</div>
+    <div onclick="joinVoice('vc2')">🔊 VC 2</div>
   </div>
-
-  <div id="chat">
-    <div id="messages"></div>
-    <div id="input">
-      <input id="chatInput" placeholder="Message">
-      <button onclick="sendDM()">Send</button>
+  <div class="chat">
+    <div class="messages" id="messages"></div>
+    <div class="input">
+      <input id="msg" placeholder="Message...">
+      <button onclick="sendMessage()">Send</button>
     </div>
   </div>
+  <div class="members">
+    <h4>Online</h4>
+    <div id="users"></div>
+  </div>
 </div>
 
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getDatabase, ref, set, push, onValue, get, remove, onDisconnect } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
-
+<script>
 const firebaseConfig = {
   apiKey: "AIzaSyBt_mZIfYnzcMygeQ11OTv1J59ARqsoN2c",
   authDomain: "dcrd3upgraded.firebaseapp.com",
   projectId: "dcrd3upgraded",
+  databaseURL: "https://dcrd3upgraded-default-rtdb.firebaseio.com",
   storageBucket: "dcrd3upgraded.firebasestorage.app",
   messagingSenderId: "22145403485",
   appId: "1:22145403485:web:ec5ffdde4cebe37a7b1bb4"
 };
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getDatabase(app);
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.database();
 
-let user, currentDM;
+let currentUser;
+let localStream;
+let peer;
 
-function showApp(){authDiv.classList.add("hidden");appDiv.classList.remove("hidden")}
-function showAuth(){authDiv.classList.remove("hidden");appDiv.classList.add("hidden")}
-
-registerBtn.onclick = async () => {
-  const cred = await createUserWithEmailAndPassword(auth,email.value,password.value);
-  const tag = Math.floor(1000+Math.random()*9000);
-  await set(ref(db,"users/"+cred.user.uid),{
-    username: email.value.split("@")[0],
-    tag
-  });
-  msg.textContent="Account created. Now log in.";
-};
-
-loginBtn.onclick = async () => {
-  await signInWithEmailAndPassword(auth,email.value,password.value);
-};
-
-onAuthStateChanged(auth,u=>{
-  if(!u) return showAuth();
-  user=u; showApp();
-
-  const p=ref(db,"presence/"+u.uid);
-  set(p,true); onDisconnect(p).remove();
-
-  loadFriends();
-  loadRequests();
+auth.onAuthStateChanged(user => {
+  if (user) {
+    currentUser = user;
+    document.getElementById("auth").classList.add("hidden");
+    document.getElementById("app").classList.remove("hidden");
+    setOnline();
+    loadChat();
+    loadUsers();
+  } else {
+    document.getElementById("auth").classList.remove("hidden");
+    document.getElementById("app").classList.add("hidden");
+  }
 });
 
-window.sendFriendRequest = async ()=>{
-  const name=searchUser.value;
-  const snap=await get(ref(db,"users"));
-  snap.forEach(c=>{
-    const u=c.val();
-    if(`${u.username}#${u.tag}`===name){
-      set(ref(db,"friendRequests/"+c.key+"/"+user.uid),true);
-    }
-  });
-};
+function register() {
+  const email = email.value;
+  const pass = password.value;
+  const name = username.value;
 
-function loadRequests(){
-  onValue(ref(db,"friendRequests/"+user.uid),snap=>{
-    requests.innerHTML="";
-    snap.forEach(c=>{
-      const d=document.createElement("div");
-      d.textContent="Friend request";
-      d.onclick=()=>{
-        set(ref(db,"friends/"+user.uid+"/"+c.key),true);
-        set(ref(db,"friends/"+c.key+"/"+user.uid),true);
-        remove(ref(db,"friendRequests/"+user.uid+"/"+c.key));
-      };
-      requests.appendChild(d);
+  auth.createUserWithEmailAndPassword(email, pass)
+    .then(res => {
+      const tag = Math.floor(1000 + Math.random() * 9000);
+      db.ref("users/" + res.user.uid).set({
+        username: name,
+        tag,
+        online: true
+      });
+      alert("Nice! Now log in.");
+      auth.signOut();
+    })
+    .catch(e => alert(e.message));
+}
+
+function login() {
+  auth.signInWithEmailAndPassword(email.value, password.value)
+    .catch(e => alert(e.message));
+}
+
+function setOnline() {
+  db.ref("users/" + currentUser.uid + "/online").set(true);
+  window.onbeforeunload = () =>
+    db.ref("users/" + currentUser.uid + "/online").set(false);
+}
+
+function sendMessage() {
+  const text = msg.value;
+  if (!text) return;
+  db.ref("messages").push({
+    uid: currentUser.uid,
+    text,
+    time: Date.now()
+  });
+  msg.value = "";
+}
+
+function loadChat() {
+  db.ref("messages").limitToLast(100).on("child_added", snap => {
+    const m = snap.val();
+    const div = document.createElement("div");
+    div.textContent = m.text;
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  });
+}
+
+function loadUsers() {
+  db.ref("users").on("value", snap => {
+    users.innerHTML = "";
+    snap.forEach(u => {
+      if (u.val().online) {
+        const d = document.createElement("div");
+        d.className = "user";
+        d.textContent = u.val().username + "#" + u.val().tag;
+        users.appendChild(d);
+      }
     });
   });
 }
 
-function loadFriends(){
-  onValue(ref(db,"friends/"+user.uid),snap=>{
-    friends.innerHTML="";
-    snap.forEach(c=>{
-      const div=document.createElement("div");
-      div.className="user";
-      div.textContent="Friend";
-      div.onclick=()=>openDM(c.key);
-      friends.appendChild(div);
-    });
-  });
+/* BASIC VOICE CHAT */
+async function joinVoice(room) {
+  localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const audio = document.createElement("audio");
+  audio.srcObject = localStream;
+  audio.autoplay = true;
 }
-
-function openDM(uid){
-  currentDM=[user.uid,uid].sort().join("_");
-  messages.innerHTML="";
-  onValue(ref(db,"dms/"+currentDM),snap=>{
-    messages.innerHTML="";
-    snap.forEach(c=>{
-      const m=document.createElement("div");
-      m.textContent=c.val().text;
-      messages.appendChild(m);
-    });
-  });
-}
-
-window.sendDM=()=>{
-  if(!currentDM) return;
-  push(ref(db,"dms/"+currentDM),{
-    from:user.uid,
-    text:chatInput.value
-  });
-  chatInput.value="";
-};
 </script>
 </body>
 </html>
