@@ -1,113 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>Galaxacord</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-
-<style>
-* { box-sizing: border-box; font-family: Arial, sans-serif; }
-body { margin: 0; background: #1e1f22; color: white; height: 100vh; }
-
-.hidden { display: none; }
-
-button {
-  background: #5865f2;
-  border: none;
-  color: white;
-  padding: 10px;
-  cursor: pointer;
-}
-
-input {
-  padding: 10px;
-  margin-top: 10px;
-  width: 100%;
-}
-
-#nameScreen {
-  height: 100vh;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.box {
-  background: #2b2d31;
-  padding: 25px;
-  width: 320px;
-  border-radius: 8px;
-}
-
-#app {
-  display: grid;
-  grid-template-columns: 70px 240px 1fr 240px;
-  height: 100vh;
-}
-
-.servers { background: #1e1f22; padding: 10px; }
-.channels { background: #2b2d31; padding: 10px; }
-.chat { background: #313338; display: flex; flex-direction: column; }
-.messages { flex: 1; overflow-y: auto; padding: 10px; }
-.input { display: flex; }
-.input input { flex: 1; }
-.members { background: #2b2d31; padding: 10px; }
-
-.user { padding: 4px; font-size: 14px; }
-
-.voiceBox {
-  margin-top: 10px;
-  background: #232428;
-  padding: 8px;
-}
-</style>
-</head>
-<body>
-
-<!-- USERNAME SCREEN -->
-<div id="nameScreen">
-  <div class="box">
-    <h2>Galaxacord</h2>
-    <input id="nameInput" placeholder="Choose a username">
-    <button onclick="enter()">Enter</button>
-  </div>
-</div>
-
-<!-- APP -->
-<div id="app" class="hidden">
-  <div class="servers">🌌</div>
-
-  <div class="channels">
-    <h4>Text</h4>
-    <div># global</div>
-
-    <h4>Voice</h4>
-    <div onclick="joinVoice('VC-1')">🔊 VC-1</div>
-    <div onclick="joinVoice('VC-2')">🔊 VC-2</div>
-
-    <div class="voiceBox">
-      <div id="voiceStatus">Not in voice</div>
-      <button onclick="leaveVoice()">Disconnect</button>
-    </div>
-  </div>
-
-  <div class="chat">
-    <div class="messages" id="messages"></div>
-    <div class="input">
-      <input id="msg" placeholder="Message">
-      <button onclick="send()">Send</button>
-    </div>
-  </div>
-
-  <div class="members">
-    <h4>Online</h4>
-    <div id="users"></div>
-  </div>
-</div>
-
 <script>
 /* FIREBASE */
 firebase.initializeApp({
@@ -117,21 +7,28 @@ firebase.initializeApp({
 });
 const db = firebase.database();
 
+/* ELEMENTS */
+const nameScreen = document.getElementById("nameScreen");
+const app = document.getElementById("app");
+const nameInput = document.getElementById("nameInput");
+const messages = document.getElementById("messages");
+const users = document.getElementById("users");
+const msg = document.getElementById("msg");
+const voiceStatus = document.getElementById("voiceStatus");
+
 /* SESSION */
 let id = localStorage.getItem("galaxacord_id");
 if (!id) {
-  id = Math.random().toString(36).slice(2);
+  id = crypto.randomUUID();
   localStorage.setItem("galaxacord_id", id);
 }
 
 let username = localStorage.getItem("galaxacord_name");
-let voice = null;
+let currentVoice = null;
 let stream = null;
 
-/* AUTO JOIN */
-if (username) {
-  start();
-}
+/* AUTO START */
+if (username) start();
 
 /* ENTER APP */
 function enter() {
@@ -145,14 +42,14 @@ function enter() {
   localStorage.setItem("galaxacord_name", name);
 
   db.ref("users/" + id).set({
-    username: name,
+    username,
     online: true
   });
 
   start();
 }
 
-/* START */
+/* START APP */
 function start() {
   nameScreen.classList.add("hidden");
   app.classList.remove("hidden");
@@ -165,6 +62,7 @@ function start() {
 /* ONLINE */
 function setOnline() {
   db.ref("users/" + id + "/online").set(true);
+
   window.onbeforeunload = () => {
     db.ref("users/" + id).remove();
     leaveVoice();
@@ -210,25 +108,23 @@ function loadUsers() {
 
 /* VOICE */
 async function joinVoice(room) {
-  if (voice === room) return;
+  if (currentVoice === room) return;
   leaveVoice();
 
   stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  voice = room;
+  currentVoice = room;
   voiceStatus.textContent = "🔊 Connected to " + room;
 }
 
 function leaveVoice() {
-  if (!voice) return;
+  if (!currentVoice) return;
 
   if (stream) {
     stream.getTracks().forEach(t => t.stop());
     stream = null;
   }
 
-  voice = null;
+  currentVoice = null;
   voiceStatus.textContent = "Not in voice";
 }
 </script>
-</body>
-</html>
