@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <title>Galaxacord</title>
@@ -9,90 +9,88 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
 
 <style>
-body {
-  margin: 0;
-  font-family: Arial, sans-serif;
-  background: #1e1f22;
-  color: white;
-}
-#auth, #app { height: 100vh; }
+body { margin:0; font-family:Arial; background:#1e1f22; color:white }
+.hidden { display:none }
+
 #auth {
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 8px;
+  height:100vh; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:8px
 }
 input, button {
-  width: 260px; padding: 10px;
-  border-radius: 5px; border: none;
+  width:260px; padding:10px; border:none; border-radius:5px
 }
-button { background: #5865f2; color: white; cursor: pointer; }
+button { background:#5865f2; color:white; cursor:pointer }
+#error { color:#ff5555 }
 
-#app { display: none; flex-direction: row; }
+#app { display:flex; height:100vh }
 #sidebar {
-  width: 260px; background: #2b2d31; padding: 10px;
+  width:260px; background:#2b2d31; padding:10px
 }
-#chat {
-  flex: 1; background: #313338;
-  display: flex; flex-direction: column;
+#main {
+  flex:1; background:#313338;
+  display:flex; flex-direction:column
 }
-#messages { flex: 1; padding: 10px; overflow-y: auto; }
-#messageInput {
-  padding: 10px; border: none;
-  background: #383a40; color: white;
-}
+#messages { flex:1; padding:10px; overflow-y:auto }
+#msg { padding:10px; border:none; background:#383a40; color:white }
 
-.friend { cursor: pointer; padding: 4px; }
-.friend:hover { background: #3f4147; }
+.friend { padding:6px; cursor:pointer }
+.friend:hover { background:#3f4147 }
 
 .voice {
-  margin-top: 10px;
-  padding: 8px;
-  background: #202225;
-  cursor: pointer;
+  margin-top:10px;
+  padding:8px;
+  background:#202225;
+  cursor:pointer;
 }
-.voice.active { background: #3ba55d; }
+.voice.active { background:#3ba55d }
 </style>
 </head>
 
 <body>
 
+<!-- AUTH -->
 <div id="auth">
   <h1>Galaxacord</h1>
   <input id="email" placeholder="Email">
   <input id="password" type="password" placeholder="Password">
-  <input id="username" placeholder="Username">
+  <input id="username" placeholder="Username (register)">
   <button onclick="register()">Register</button>
   <button onclick="login()">Login</button>
   <p id="error"></p>
 </div>
 
-<div id="app">
+<!-- APP -->
+<div id="app" class="hidden">
   <div id="sidebar">
     <h3 id="me"></h3>
 
-    <div class="voice" onclick="joinVoice('global')">
+    <div class="voice" id="voiceBtn" onclick="toggleVoice()">
       🔊 Global Voice
     </div>
+
+    <input id="friendInput" placeholder="username#tag">
+    <button onclick="addFriend()">Add Friend</button>
 
     <h4>Friends</h4>
     <div id="friends"></div>
   </div>
 
-  <div id="chat">
+  <div id="main">
     <div id="messages"></div>
-    <input id="messageInput" placeholder="Message" onkeydown="if(event.key==='Enter')sendMessage()">
+    <input id="msg" placeholder="Message" onkeydown="if(event.key==='Enter')sendMsg()">
   </div>
 </div>
 
 <script>
-/* 🔒 PASTE YOUR FIREBASE CONFIG HERE */
+/* 🔥 BRAND NEW FIREBASE PROJECT CONFIG 🔥 */
 firebase.initializeApp({
-  apiKey: "AIzaSyDPmYoOViI__iEn_z38IRwEnPs0cNMqVCQ",
-  authDomain: "dcrd-97f60.firebaseapp.com",
-  databaseURL: "https://dcrd-97f60-default-rtdb.firebaseio.com",
-  projectId: "dcrd-97f60",
-  storageBucket: "dcrd-97f60.firebasestorage.app",
-  messagingSenderId: "66865772323",
-  appId: "1:66865772323:web:675be4e7fcd3864cf87e96",
+  apiKey: "AIzaSyCgD_YaDaGAgRdY4RJIRO_6JP20S68Y6aA",
+  authDomain: "dcrd2-27614.firebaseapp.com",
+  databaseURL: "https://dcrd2-27614-default-rtdb.firebaseio.com",
+  projectId: "dcrd2-27614",
+  storageBucket: "dcrd2-27614.firebasestorage.app",
+  messagingSenderId: "502344350795",
+  appId: "1:502344350795:web:086eaaf15aa5355d3361ce"
 });
 
 const auth = firebase.auth();
@@ -101,29 +99,30 @@ const db = firebase.database();
 let currentChat = null;
 let localStream = null;
 let peers = {};
-let currentVoice = null;
+let inVoice = false;
 
 /* AUTH STATE */
-auth.onAuthStateChanged(async user => {
+auth.onAuthStateChanged(user => {
   if (user) {
-    auth.style.display = "none";
-    app.style.display = "flex";
-    setPresence(true);
-    loadProfile();
+    authDiv.style.display = "none";
+    app.classList.remove("hidden");
+    loadMe();
     loadFriends();
   } else {
-    auth.style.display = "flex";
-    app.style.display = "none";
+    authDiv.style.display = "flex";
+    app.classList.add("hidden");
   }
 });
 
-window.addEventListener("beforeunload", () => setPresence(false));
+const authDiv = document.getElementById("auth");
 
 /* REGISTER */
 function register() {
+  if (!username.value) return error.innerText = "Username required";
+
   auth.createUserWithEmailAndPassword(email.value, password.value)
     .then(res => {
-      const tag = "#" + Math.floor(1000 + Math.random() * 9000);
+      const tag = "#" + Math.floor(1000 + Math.random()*9000);
       return db.ref("users/" + res.user.uid).set({
         username: username.value,
         tag
@@ -132,29 +131,39 @@ function register() {
     .catch(e => error.innerText = e.message);
 }
 
+/* LOGIN */
 function login() {
   auth.signInWithEmailAndPassword(email.value, password.value)
     .catch(e => error.innerText = e.message);
 }
 
 /* PROFILE */
-function loadProfile() {
-  const uid = auth.currentUser.uid;
-  db.ref("users/" + uid).once("value").then(snap => {
-    me.innerText = snap.val().username + snap.val().tag;
+function loadMe() {
+  db.ref("users/" + auth.currentUser.uid).once("value").then(s => {
+    me.innerText = s.val().username + s.val().tag;
   });
 }
 
-/* PRESENCE */
-function setPresence(online) {
-  const uid = auth.currentUser.uid;
-  db.ref("presence/" + uid).set({
-    online,
-    lastSeen: Date.now()
+/* FRIENDS */
+function addFriend() {
+  const val = friendInput.value;
+  if (!val.includes("#")) return;
+
+  const [name, tag] = val.split("#");
+
+  db.ref("users").once("value").then(snap => {
+    snap.forEach(u => {
+      if (u.val().username === name && u.val().tag === "#" + tag) {
+        const uid = auth.currentUser.uid;
+        db.ref("friends/" + uid + "/" + u.key).set(true);
+        db.ref("friends/" + u.key + "/" + uid).set(true);
+      }
+    });
   });
+
+  friendInput.value = "";
 }
 
-/* FRIENDS (simple auto-friend demo) */
 function loadFriends() {
   const uid = auth.currentUser.uid;
   db.ref("friends/" + uid).on("value", snap => {
@@ -172,51 +181,60 @@ function loadFriends() {
 }
 
 /* DMS */
-function openDM(friendUid) {
-  currentChat = [auth.currentUser.uid, friendUid].sort().join("_");
+function openDM(other) {
+  currentChat = [auth.currentUser.uid, other].sort().join("_");
   messages.innerHTML = "";
+
   db.ref("messages/" + currentChat).off();
-  db.ref("messages/" + currentChat).on("child_added", snap => {
+  db.ref("messages/" + currentChat).on("child_added", s => {
     const d = document.createElement("div");
-    d.innerText = snap.val().text;
+    d.innerText = s.val().text;
     messages.appendChild(d);
   });
 }
 
-function sendMessage() {
-  if (!currentChat || !messageInput.value) return;
+function sendMsg() {
+  if (!currentChat || !msg.value) return;
   db.ref("messages/" + currentChat).push({
+    text: msg.value,
     sender: auth.currentUser.uid,
-    text: messageInput.value,
     time: Date.now()
   });
-  messageInput.value = "";
+  msg.value = "";
 }
 
-/* 🔊 VOICE CHANNELS (WEBRTC) */
-async function joinVoice(room) {
-  if (currentVoice) leaveVoice();
-  currentVoice = room;
+/* 🔊 VOICE CHAT (WEBRTC) */
+async function toggleVoice() {
+  if (inVoice) leaveVoice();
+  else joinVoice();
+}
 
-  localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+async function joinVoice() {
+  inVoice = true;
+  voiceBtn.classList.add("active");
+
+  localStream = await navigator.mediaDevices.getUserMedia({ audio:true });
+
   const uid = auth.currentUser.uid;
+  const room = "global";
 
   const roomRef = db.ref("voice/" + room + "/" + uid);
   roomRef.set(true);
   roomRef.onDisconnect().remove();
 
   db.ref("voice/" + room).on("child_added", snap => {
-    const peerId = snap.key;
-    if (peerId === uid) return;
-    createPeer(peerId, true);
+    if (snap.key !== uid) createPeer(snap.key, true);
   });
 }
 
 function leaveVoice() {
+  inVoice = false;
+  voiceBtn.classList.remove("active");
+
   Object.values(peers).forEach(p => p.close());
   peers = {};
-  db.ref("voice/" + currentVoice + "/" + auth.currentUser.uid).remove();
-  currentVoice = null;
+
+  db.ref("voice/global/" + auth.currentUser.uid).remove();
 }
 
 function createPeer(peerId, initiator) {
@@ -224,30 +242,34 @@ function createPeer(peerId, initiator) {
   peers[peerId] = pc;
 
   localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-  pc.ontrack = e => new Audio().srcObject = e.streams[0];
+  pc.ontrack = e => {
+    const a = new Audio();
+    a.srcObject = e.streams[0];
+    a.autoplay = true;
+  };
 
-  const ref = db.ref("signals/" + currentVoice + "/" + peerId + "/" + auth.currentUser.uid);
+  const ref = db.ref("signals/global/" + peerId + "/" + auth.currentUser.uid);
 
-  pc.onicecandidate = e => e.candidate && ref.push({ ice: e.candidate });
+  pc.onicecandidate = e => e.candidate && ref.push({ ice:e.candidate });
 
   if (initiator) {
     pc.createOffer().then(o => {
       pc.setLocalDescription(o);
-      ref.push({ offer: o });
+      ref.push({ offer:o });
     });
   }
 
-  db.ref("signals/" + currentVoice + "/" + auth.currentUser.uid + "/" + peerId)
+  db.ref("signals/global/" + auth.currentUser.uid + "/" + peerId)
     .on("child_added", async snap => {
-      const data = snap.val();
-      if (data.offer) {
-        await pc.setRemoteDescription(data.offer);
+      const d = snap.val();
+      if (d.offer) {
+        await pc.setRemoteDescription(d.offer);
         const ans = await pc.createAnswer();
         await pc.setLocalDescription(ans);
-        ref.push({ answer: ans });
+        ref.push({ answer:ans });
       }
-      if (data.answer) await pc.setRemoteDescription(data.answer);
-      if (data.ice) await pc.addIceCandidate(data.ice);
+      if (d.answer) await pc.setRemoteDescription(d.answer);
+      if (d.ice) await pc.addIceCandidate(d.ice);
     });
 }
 </script>
