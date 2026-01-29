@@ -1,151 +1,64 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
 <title>Galaxacord</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-
 <style>
-body {
-  margin: 0;
-  font-family: system-ui, sans-serif;
-  background: #1e1f22;
-  color: white;
-}
-
-.hidden { display: none; }
-
-#auth, #app {
-  height: 100vh;
-}
-
-#auth {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.auth-box {
-  background: #2b2d31;
-  padding: 30px;
-  width: 320px;
-  border-radius: 10px;
-}
-
-.auth-box h2 {
-  margin-top: 0;
-}
-
-.auth-box input {
-  width: 100%;
-  padding: 10px;
-  margin-top: 10px;
-  border-radius: 6px;
-  border: none;
-}
-
-.auth-box button {
-  width: 100%;
-  padding: 10px;
-  margin-top: 10px;
-  background: #5865f2;
-  border: none;
-  border-radius: 6px;
-  color: white;
-  cursor: pointer;
-}
-
-#error {
-  color: #ff6b6b;
-  margin-top: 10px;
-  font-size: 14px;
-}
-
-/* APP */
-#app {
-  display: flex;
-}
-
-#servers {
-  width: 60px;
-  background: #1e1f22;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-#channels {
-  width: 220px;
-  background: #2b2d31;
-  padding: 10px;
-}
-
-#chat {
-  flex: 1;
-  background: #313338;
-  display: flex;
-  flex-direction: column;
-}
-
-#messages {
-  flex: 1;
-  padding: 10px;
-  overflow-y: auto;
-}
-
-#input {
-  padding: 10px;
-  display: flex;
-}
-
-#input input {
-  flex: 1;
-  padding: 10px;
-  border-radius: 6px;
-  border: none;
-}
+body { margin:0; font-family:system-ui; background:#1e1f22; color:white }
+.hidden{display:none}
+#auth{height:100vh;display:flex;align-items:center;justify-content:center}
+.box{background:#2b2d31;padding:30px;width:320px;border-radius:10px}
+input,button{width:100%;padding:10px;margin-top:10px;border-radius:6px;border:none}
+button{background:#5865f2;color:white;cursor:pointer}
+#app{display:flex;height:100vh}
+#sidebar{width:240px;background:#2b2d31;padding:10px}
+#chat{flex:1;background:#313338;display:flex;flex-direction:column}
+#messages{flex:1;padding:10px;overflow-y:auto}
+#input{display:flex;padding:10px}
+#input input{flex:1}
+.user{cursor:pointer;padding:5px;border-radius:5px}
+.user:hover{background:#3f4147}
 </style>
 </head>
-
 <body>
 
-<!-- AUTH -->
 <div id="auth">
-  <div class="auth-box">
+  <div class="box">
     <h2>Galaxacord</h2>
     <input id="email" placeholder="Email">
     <input id="password" type="password" placeholder="Password">
     <button id="loginBtn">Login</button>
     <button id="registerBtn">Register</button>
-    <div id="error"></div>
+    <div id="msg"></div>
   </div>
 </div>
 
-<!-- APP -->
 <div id="app" class="hidden">
-  <div id="servers">🌌</div>
-  <div id="channels">
-    <h4>Text Channels</h4>
-    <div># global-1</div>
+  <div id="sidebar">
+    <h4>Friends</h4>
+    <input id="searchUser" placeholder="Add friend by username#tag">
+    <button onclick="sendFriendRequest()">Add</button>
+    <div id="friends"></div>
+
+    <h4>Requests</h4>
+    <div id="requests"></div>
   </div>
+
   <div id="chat">
-    <div id="messages">Welcome to Galaxacord 🎉</div>
+    <div id="messages"></div>
     <div id="input">
-      <input placeholder="Message">
+      <input id="chatInput" placeholder="Message">
+      <button onclick="sendDM()">Send</button>
     </div>
   </div>
 </div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import {
-  getAuth,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  onAuthStateChanged
-} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getDatabase, ref, set, push, onValue, get, remove, onDisconnect } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-/* 🔥 YOUR FIREBASE CONFIG */
 const firebaseConfig = {
   apiKey: "AIzaSyBt_mZIfYnzcMygeQ11OTv1J59ARqsoN2c",
   authDomain: "dcrd3upgraded.firebaseapp.com",
@@ -157,63 +70,99 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const db = getDatabase(app);
 
-/* UI refs */
-const authDiv = document.getElementById("auth");
-const appDiv = document.getElementById("app");
-const errorDiv = document.getElementById("error");
+let user, currentDM;
 
-/* SHOW APP */
-function showApp() {
-  authDiv.classList.add("hidden");
-  appDiv.classList.remove("hidden");
-}
+function showApp(){authDiv.classList.add("hidden");appDiv.classList.remove("hidden")}
+function showAuth(){authDiv.classList.remove("hidden");appDiv.classList.add("hidden")}
 
-/* SHOW AUTH */
-function showAuth() {
-  authDiv.classList.remove("hidden");
-  appDiv.classList.add("hidden");
-}
-
-/* LOGIN */
-document.getElementById("loginBtn").onclick = async () => {
-  errorDiv.textContent = "";
-  try {
-    await signInWithEmailAndPassword(
-      auth,
-      email.value,
-      password.value
-    );
-    showApp();
-  } catch (e) {
-    errorDiv.textContent = e.message;
-  }
+registerBtn.onclick = async () => {
+  const cred = await createUserWithEmailAndPassword(auth,email.value,password.value);
+  const tag = Math.floor(1000+Math.random()*9000);
+  await set(ref(db,"users/"+cred.user.uid),{
+    username: email.value.split("@")[0],
+    tag
+  });
+  msg.textContent="Account created. Now log in.";
 };
 
-/* REGISTER */
-document.getElementById("registerBtn").onclick = async () => {
-  errorDiv.textContent = "";
-  try {
-    await createUserWithEmailAndPassword(
-      auth,
-      email.value,
-      password.value
-    );
-    showApp();
-  } catch (e) {
-    errorDiv.textContent = e.message;
-  }
+loginBtn.onclick = async () => {
+  await signInWithEmailAndPassword(auth,email.value,password.value);
 };
 
-/* AUTO LOGIN ON REFRESH */
-onAuthStateChanged(auth, user => {
-  if (user) {
-    showApp();
-  } else {
-    showAuth();
-  }
+onAuthStateChanged(auth,u=>{
+  if(!u) return showAuth();
+  user=u; showApp();
+
+  const p=ref(db,"presence/"+u.uid);
+  set(p,true); onDisconnect(p).remove();
+
+  loadFriends();
+  loadRequests();
 });
-</script>
 
+window.sendFriendRequest = async ()=>{
+  const name=searchUser.value;
+  const snap=await get(ref(db,"users"));
+  snap.forEach(c=>{
+    const u=c.val();
+    if(`${u.username}#${u.tag}`===name){
+      set(ref(db,"friendRequests/"+c.key+"/"+user.uid),true);
+    }
+  });
+};
+
+function loadRequests(){
+  onValue(ref(db,"friendRequests/"+user.uid),snap=>{
+    requests.innerHTML="";
+    snap.forEach(c=>{
+      const d=document.createElement("div");
+      d.textContent="Friend request";
+      d.onclick=()=>{
+        set(ref(db,"friends/"+user.uid+"/"+c.key),true);
+        set(ref(db,"friends/"+c.key+"/"+user.uid),true);
+        remove(ref(db,"friendRequests/"+user.uid+"/"+c.key));
+      };
+      requests.appendChild(d);
+    });
+  });
+}
+
+function loadFriends(){
+  onValue(ref(db,"friends/"+user.uid),snap=>{
+    friends.innerHTML="";
+    snap.forEach(c=>{
+      const div=document.createElement("div");
+      div.className="user";
+      div.textContent="Friend";
+      div.onclick=()=>openDM(c.key);
+      friends.appendChild(div);
+    });
+  });
+}
+
+function openDM(uid){
+  currentDM=[user.uid,uid].sort().join("_");
+  messages.innerHTML="";
+  onValue(ref(db,"dms/"+currentDM),snap=>{
+    messages.innerHTML="";
+    snap.forEach(c=>{
+      const m=document.createElement("div");
+      m.textContent=c.val().text;
+      messages.appendChild(m);
+    });
+  });
+}
+
+window.sendDM=()=>{
+  if(!currentDM) return;
+  push(ref(db,"dms/"+currentDM),{
+    from:user.uid,
+    text:chatInput.value
+  });
+  chatInput.value="";
+};
+</script>
 </body>
 </html>
