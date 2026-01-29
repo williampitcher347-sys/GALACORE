@@ -28,7 +28,7 @@ input {
   width: 100%;
 }
 
-#usernameScreen {
+#nameScreen {
   height: 100vh;
   display: flex;
   justify-content: center;
@@ -67,12 +67,12 @@ input {
 </head>
 <body>
 
-<!-- USERNAME PICK -->
-<div id="usernameScreen">
+<!-- USERNAME SCREEN -->
+<div id="nameScreen">
   <div class="box">
     <h2>Galaxacord</h2>
-    <input id="usernameInput" placeholder="Choose a username">
-    <button onclick="enterApp()">Enter</button>
+    <input id="nameInput" placeholder="Choose a username">
+    <button onclick="enter()">Enter</button>
   </div>
 </div>
 
@@ -98,7 +98,7 @@ input {
     <div class="messages" id="messages"></div>
     <div class="input">
       <input id="msg" placeholder="Message">
-      <button onclick="sendMessage()">Send</button>
+      <button onclick="send()">Send</button>
     </div>
   </div>
 
@@ -115,75 +115,81 @@ firebase.initializeApp({
   databaseURL: "https://dcrd3upgraded-default-rtdb.firebaseio.com",
   projectId: "dcrd3upgraded"
 });
-
 const db = firebase.database();
 
 /* SESSION */
-let sessionId = localStorage.getItem("galaxacord_id");
-if (!sessionId) {
-  sessionId = crypto.randomUUID();
-  localStorage.setItem("galaxacord_id", sessionId);
+let id = localStorage.getItem("galaxacord_id");
+if (!id) {
+  id = Math.random().toString(36).slice(2);
+  localStorage.setItem("galaxacord_id", id);
 }
 
 let username = localStorage.getItem("galaxacord_name");
-let currentVoice = null;
-let localStream = null;
+let voice = null;
+let stream = null;
 
 /* AUTO JOIN */
-if (username) startApp();
+if (username) {
+  start();
+}
 
-/* ENTER */
-function enterApp() {
-  const name = usernameInput.value.trim();
-  if (name.length < 3) return alert("Username too short");
+/* ENTER APP */
+function enter() {
+  const name = nameInput.value.trim();
+  if (name.length < 3) {
+    alert("Username must be at least 3 characters");
+    return;
+  }
 
   username = name;
   localStorage.setItem("galaxacord_name", name);
 
-  db.ref("users/" + sessionId).set({
-    username,
+  db.ref("users/" + id).set({
+    username: name,
     online: true
   });
 
-  startApp();
+  start();
 }
 
 /* START */
-function startApp() {
-  usernameScreen.classList.add("hidden");
+function start() {
+  nameScreen.classList.add("hidden");
   app.classList.remove("hidden");
 
   setOnline();
-  loadChat();
+  loadMessages();
   loadUsers();
 }
 
 /* ONLINE */
 function setOnline() {
-  db.ref("users/" + sessionId + "/online").set(true);
+  db.ref("users/" + id + "/online").set(true);
   window.onbeforeunload = () => {
-    db.ref("users/" + sessionId).remove();
+    db.ref("users/" + id).remove();
     leaveVoice();
   };
 }
 
 /* CHAT */
-function sendMessage() {
+function send() {
   if (!msg.value) return;
+
   db.ref("messages").push({
     user: username,
     text: msg.value
   });
+
   msg.value = "";
 }
 
-function loadChat() {
+function loadMessages() {
   messages.innerHTML = "";
   db.ref("messages").limitToLast(100).on("child_added", snap => {
     const m = snap.val();
-    const d = document.createElement("div");
-    d.textContent = m.user + ": " + m.text;
-    messages.appendChild(d);
+    const div = document.createElement("div");
+    div.textContent = m.user + ": " + m.text;
+    messages.appendChild(div);
     messages.scrollTop = messages.scrollHeight;
   });
 }
@@ -194,34 +200,33 @@ function loadUsers() {
     users.innerHTML = "";
     snap.forEach(u => {
       if (!u.val().online) return;
-      const d = document.createElement("div");
-      d.className = "user";
-      d.textContent = u.val().username;
-      users.appendChild(d);
+      const div = document.createElement("div");
+      div.className = "user";
+      div.textContent = u.val().username;
+      users.appendChild(div);
     });
   });
 }
 
 /* VOICE */
 async function joinVoice(room) {
-  if (currentVoice === room) return;
+  if (voice === room) return;
   leaveVoice();
 
-  localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  currentVoice = room;
-
+  stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  voice = room;
   voiceStatus.textContent = "🔊 Connected to " + room;
 }
 
 function leaveVoice() {
-  if (!currentVoice) return;
+  if (!voice) return;
 
-  if (localStream) {
-    localStream.getTracks().forEach(t => t.stop());
-    localStream = null;
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
   }
 
-  currentVoice = null;
+  voice = null;
   voiceStatus.textContent = "Not in voice";
 }
 </script>
